@@ -49,6 +49,8 @@ defmodule ChronosWeb.SimLive do
       <p>Paths to RX: <%= @path_count %></p>
       <p>BER: <%= Float.round(@ber, 6) %></p>
       <button phx-click="step">Step</button>
+      <section id="sim-canvas" phx-hook="SimCanvas"></section>
+      <section id="dsp-charts" phx-hook="DspCharts"></section>
     </main>
     """
   end

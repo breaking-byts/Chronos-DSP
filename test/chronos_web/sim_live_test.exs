@@ -15,6 +15,14 @@ defmodule ChronosWeb.SimLiveTest do
     assert html =~ "echarts"
   end
 
+  test "renders canvas and chart containers", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/")
+    assert html =~ "id=\"sim-canvas\""
+    assert html =~ "id=\"dsp-charts\""
+    assert html =~ "phx-hook=\"SimCanvas\""
+    assert html =~ "phx-hook=\"DspCharts\""
+  end
+
   test "renders and handles step", %{conn: conn} do
     {:ok, view, html} = live(conn, "/")
     assert html =~ "Chronos-DSP Prototype"

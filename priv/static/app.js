@@ -10,7 +10,5 @@
     }
   };
 
-  if (window.liveSocket) {
-    window.liveSocket.hooks = Hooks;
-  }
+  window.liveHooks = Hooks;
 })();
