@@ -21,7 +21,7 @@ defmodule Chronos.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.29"},
+      {:rustler, "~> 0.37"},
       {:phoenix, "~> 1.7"},
       {:phoenix_pubsub, "~> 2.1"},
       {:phoenix_live_view, "~> 0.20"},

@@ -21,7 +21,10 @@ defmodule Chronos.GeometryTest do
   end
 
   test "normalize returns unit vector" do
-    assert {:ok, {0.0, 0.0, 1.0}} = Geometry.normalize({0.0, 0.0, 2.0})
+    assert {:ok, {x, y, z}} = Geometry.normalize({0.0, 0.0, 2.0})
+    assert_in_delta x, 0.0, 1.0e-9
+    assert_in_delta y, 0.0, 1.0e-9
+    assert_in_delta z, 1.0, 1.0e-9
   end
 
   test "ray-plane intersection hits plane" do
@@ -30,8 +33,13 @@ defmodule Chronos.GeometryTest do
     plane_point = {0.0, 0.0, 0.0}
     plane_normal = {0.0, 0.0, 1.0}
 
-    assert {:ok, {0.0, 0.0, 0.0}, 1.0} =
+    assert {:ok, {x, y, z}, t} =
              Geometry.ray_plane_intersect(origin, dir, plane_point, plane_normal)
+
+    assert_in_delta x, 0.0, 1.0e-9
+    assert_in_delta y, 0.0, 1.0e-9
+    assert_in_delta z, 0.0, 1.0e-9
+    assert_in_delta t, 1.0, 1.0e-9
   end
 
   test "ray-plane intersection is parallel" do
@@ -58,9 +66,12 @@ defmodule Chronos.GeometryTest do
     plane_point = {0.0, 0.0, 0.0}
     plane_normal = {0.0, 0.0, 1.0}
 
-    assert {:ok, {0.0, 0.0, 0.0}, t} =
+    assert {:ok, {x, y, z}, t} =
              Geometry.segment_plane_intersect(a, b, plane_point, plane_normal)
 
+    assert_in_delta x, 0.0, 1.0e-9
+    assert_in_delta y, 0.0, 1.0e-9
+    assert_in_delta z, 0.0, 1.0e-9
     assert_in_delta t, 0.5, 1.0e-9
   end
 
@@ -69,8 +80,12 @@ defmodule Chronos.GeometryTest do
     plane_point = {0.0, 0.0, 0.0}
     plane_normal = {0.0, 0.0, 1.0}
 
-    assert {:ok, {0.0, 0.0, -1.0}} =
+    assert {:ok, {x, y, z}} =
              Geometry.reflect_point_across_plane(point, plane_point, plane_normal)
+
+    assert_in_delta x, 0.0, 1.0e-9
+    assert_in_delta y, 0.0, 1.0e-9
+    assert_in_delta z, -1.0, 1.0e-9
   end
 
   test "point in polygon on plane" do
