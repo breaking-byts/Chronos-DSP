@@ -79,7 +79,13 @@
         this.spectrum = echarts.init(this.el.querySelector("#chart-spectrum"));
         this.waveform = echarts.init(this.el.querySelector("#chart-waveform"));
         this.initCharts();
-        this.handleEvent("sim_frame", ({ dsp }) => this.updateCharts(dsp || {}));
+        this.lastUpdate = 0;
+        this.handleEvent("sim_frame", ({ dsp }) => {
+          const now = performance.now();
+          if (now - this.lastUpdate < 100) return;
+          this.lastUpdate = now;
+          this.updateCharts(dsp || {});
+        });
       },
       initCharts() {
         this.constellation.setOption({
