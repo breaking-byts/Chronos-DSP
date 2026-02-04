@@ -50,4 +50,10 @@ defmodule Chronos.WorldTest do
     assert %{pos: {0.5, 1.0, -0.5}} = World.node(world, :rx1)
     assert world.time_s == 0.5
   end
+
+  test "update_node updates position" do
+    node = %World.Node{id: :n1, type: :rx, pos: {1.0, 1.0, 1.0}, vel: {1.0, -1.0, 0.5}}
+    updated = World.update_node(node, 2.0)
+    assert updated.pos == {3.0, -1.0, 2.0}
+  end
 end

@@ -13,27 +13,31 @@ defmodule Chronos.DSP.Reference do
           list({float(), float()})
   def render_samples(tx, paths, sample_rate, noise_power, seed) do
     tx_len = length(tx)
-    indices = 0..(tx_len - 1)
+    if tx_len == 0 do
+      []
+    else
+      indices = 0..(tx_len - 1)
 
-    {samples, _rng} =
-      Enum.map_reduce(indices, seed_rng(seed), fn n, rng ->
-        t = n / sample_rate
+      {samples, _rng} =
+        Enum.map_reduce(indices, seed_rng(seed), fn n, rng ->
+          t = n / sample_rate
 
-        {re, im} =
-          Enum.reduce(paths, {0.0, 0.0}, fn %{delay_s: d, gain: g, doppler_hz: fd},
-                                            {acc_re, acc_im} ->
-            x = delayed_sample(tx, n, d * sample_rate)
-            phase = 2.0 * :math.pi() * fd * t
-            {pr, pi} = rotate(x, phase)
-            {acc_re + pr * g, acc_im + pi * g}
-          end)
+          {re, im} =
+            Enum.reduce(paths, {0.0, 0.0}, fn %{delay_s: d, gain: g, doppler_hz: fd},
+                                              {acc_re, acc_im} ->
+              x = delayed_sample(tx, n, d * sample_rate)
+              phase = 2.0 * :math.pi() * fd * t
+              {pr, pi} = rotate(x, phase)
+              {acc_re + pr * g, acc_im + pi * g}
+            end)
 
-        {nr, ni, rng_next} = gaussian_pair(rng)
-        noise_scale = :math.sqrt(noise_power / 2.0)
-        {{re + nr * noise_scale, im + ni * noise_scale}, rng_next}
-      end)
+          {nr, ni, rng_next} = gaussian_pair(rng)
+          noise_scale = :math.sqrt(noise_power / 2.0)
+          {{re + nr * noise_scale, im + ni * noise_scale}, rng_next}
+        end)
 
-    samples
+      samples
+    end
   end
 
   @spec delayed_sample(list({float(), float()}), non_neg_integer(), float()) :: {float(), float()}

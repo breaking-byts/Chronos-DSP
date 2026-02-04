@@ -24,4 +24,8 @@ defmodule Chronos.DSPReferenceTest do
     assert_in_delta re, 0.0, 1.0e-6
     assert_in_delta im, 1.0, 1.0e-6
   end
+
+  test "render_samples handles empty input" do
+    assert [] == Reference.render_samples([], [], 1.0, 0.0, 1)
+  end
 end

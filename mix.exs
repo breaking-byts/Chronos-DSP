@@ -8,14 +8,7 @@ defmodule Chronos.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      compilers: [:rustler] ++ Mix.compilers(),
-      deps: deps(),
-      rustler_crates: [
-        chronos_dsp: [
-          path: "native/chronos_dsp",
-          mode: if(Mix.env() == :prod, do: :release, else: :debug)
-        ]
-      ]
+      deps: deps()
     ]
   end
 

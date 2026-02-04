@@ -12,6 +12,8 @@ Monolithic, real-time wireless propagation simulator (prototype scaffold).
 
 - Install toolchain via `mise` or `asdf`, then run `bin/setup`
 - Run tests with `bin/test`
+- Start UI with `mix phx.server` and visit `http://localhost:4000`
+- Quick perf check with `bin/profile`
 
 ## Prototype Defaults
 
@@ -21,6 +23,6 @@ Monolithic, real-time wireless propagation simulator (prototype scaffold).
 
 ## Next Steps
 
-- Implement wall polygons and path enumeration
-- Define DSP path format for Rust NIF
-- Add BER integration tests
+- Add multi-wall reflection + diffraction models
+- Profile NIF hot paths and SIMD-ize
+- Expand UI with plots (constellation, BER over time)

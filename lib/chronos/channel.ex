@@ -44,7 +44,7 @@ defmodule Chronos.Channel do
       plane_point = hd(vertices)
 
       with {:ok, tx_reflected} <- Geometry.reflect_point_across_plane(tx_pos, plane_point, normal),
-           {:ok, hit, _t} <- Geometry.ray_plane_intersect(tx_reflected, Geometry.sub(rx_pos, tx_reflected), plane_point, normal),
+           {:ok, hit, _t} <- Geometry.segment_plane_intersect(tx_reflected, rx_pos, plane_point, normal),
            true <- Geometry.point_in_polygon(hit, vertices, normal),
            false <- segment_occluded?(tx_pos, hit, walls, plane_point),
            false <- segment_occluded?(hit, rx_pos, walls, plane_point) do
