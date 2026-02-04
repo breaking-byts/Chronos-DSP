@@ -11,4 +11,13 @@ defmodule Chronos.SceneTest do
     assert Scene.project({5.0, 5.0, 0.0}, bounds, viewport) == {200.0, 0.0}
     assert Scene.project({-5.0, -5.0, 0.0}, bounds, viewport) == {0.0, 100.0}
   end
+
+  test "raises when bounds span is zero" do
+    bounds = %{min: {2.0, -1.0}, max: {2.0, 3.0}}
+    viewport = %{width: 200, height: 100}
+
+    assert_raise ArgumentError, ~r/zero-span bounds/i, fn ->
+      Scene.project({0.0, 0.0, 0.0}, bounds, viewport)
+    end
+  end
 end
