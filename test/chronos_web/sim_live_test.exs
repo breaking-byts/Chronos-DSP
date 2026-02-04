@@ -10,4 +10,13 @@ defmodule ChronosWeb.SimLiveTest do
     assert length(:sys.get_state(view.pid).socket.assigns.history) <= 60
     assert render_click(view, "step") =~ "BER"
   end
+
+  test "scene_bounds returns defaults for empty world" do
+    world = Chronos.World.new()
+
+    assert ChronosWeb.SimLive.scene_bounds(world) == %{
+             min: {-5.0, -5.0},
+             max: {5.0, 5.0}
+           }
+  end
 end

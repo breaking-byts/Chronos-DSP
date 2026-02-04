@@ -376,19 +376,23 @@ defmodule ChronosWeb.SimLive do
     {bounds, walls, nodes}
   end
 
-  defp scene_bounds(world) do
+  def scene_bounds(world) do
     nodes = world.nodes |> Map.values() |> Enum.map(& &1.pos)
     wall_vertices = world.walls |> Map.values() |> Enum.flat_map(& &1.vertices)
     points = nodes ++ wall_vertices
 
-    {min_x, max_x} = min_max(points, 0)
-    {min_y, max_y} = min_max(points, 1)
-    padding = 0.5
+    if points == [] do
+      %{min: {-5.0, -5.0}, max: {5.0, 5.0}}
+    else
+      {min_x, max_x} = min_max(points, 0)
+      {min_y, max_y} = min_max(points, 1)
+      padding = 0.5
 
-    %{
-      min: {min_x - padding, min_y - padding},
-      max: {max_x + padding, max_y + padding}
-    }
+      %{
+        min: {min_x - padding, min_y - padding},
+        max: {max_x + padding, max_y + padding}
+      }
+    end
   end
 
   defp min_max(points, index) do
