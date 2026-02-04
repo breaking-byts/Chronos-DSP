@@ -7,6 +7,7 @@ Monolithic, real-time wireless propagation simulator (prototype scaffold).
 - `lib/` Elixir control-plane and geometry
 - `native/chronos_dsp/` Rust NIF data-plane
 - `test/` ExUnit tests
+- LiveView dashboard panels: scene, constellation, BER/power history
 
 ## Setup
 
