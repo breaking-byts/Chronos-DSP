@@ -20,9 +20,9 @@ defmodule Chronos.SimFrame do
 
     %{
       tick: tick,
-      nodes: Map.values(world.nodes),
-      walls: Map.values(world.walls),
-      paths: build_paths(world),
+      nodes: world.nodes |> Map.values() |> Enum.map(&encode_node/1),
+      walls: world.walls |> Map.values() |> Enum.map(&encode_wall/1),
+      paths: build_paths(world) |> Enum.map(&encode_path/1),
       metrics: metrics,
       dsp: dsp
     }
@@ -84,6 +84,25 @@ defmodule Chronos.SimFrame do
         {%{ber: ber, path_count: path_count}, dsp}
     end
   end
+
+  defp encode_node(%World.Node{id: id, type: type, pos: pos, vel: vel}) do
+    %{id: to_string(id), type: to_string(type), pos: tuple_to_list(pos), vel: tuple_to_list(vel)}
+  end
+
+  defp encode_wall(%World.Wall{id: id, vertices: vertices, normal: normal, attenuation_db: att}) do
+    %{
+      id: to_string(id),
+      vertices: Enum.map(vertices, &tuple_to_list/1),
+      normal: tuple_to_list(normal),
+      attenuation_db: att
+    }
+  end
+
+  defp encode_path(%{points: points, kind: kind}) do
+    %{points: Enum.map(points, &tuple_to_list/1), kind: to_string(kind)}
+  end
+
+  defp tuple_to_list(tuple) when is_tuple(tuple), do: Tuple.to_list(tuple)
 
   defp build_dsp(samples) do
     constellation =
