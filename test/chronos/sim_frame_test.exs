@@ -10,4 +10,14 @@ defmodule Chronos.SimFrameTest do
     assert Map.has_key?(frame, :paths)
     assert Map.has_key?(frame, :metrics)
   end
+
+  test "frame includes dsp samples" do
+    world = Chronos.World.new()
+    frame = Chronos.SimFrame.from_world(world, tick: 0)
+
+    assert Map.has_key?(frame, :dsp)
+    assert Map.has_key?(frame.dsp, :constellation)
+    assert Map.has_key?(frame.dsp, :spectrum)
+    assert Map.has_key?(frame.dsp, :waveform)
+  end
 end

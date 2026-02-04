@@ -7,7 +7,8 @@ defmodule Chronos.SimFrame do
       nodes: Map.values(world.nodes),
       walls: Map.values(world.walls),
       paths: [],
-      metrics: %{ber: 0.0, path_count: 0}
+      metrics: %{ber: 0.0, path_count: 0},
+      dsp: %{constellation: [], spectrum: [], waveform: []}
     }
   end
 end
