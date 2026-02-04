@@ -11,3 +11,5 @@ config :chronos, ChronosWeb.Endpoint,
   live_view: [signing_salt: "Y0P4M4C0S4L7"]
 
 config :phoenix, :json_library, Jason
+
+import_config "#{config_env()}.exs"
