@@ -23,6 +23,12 @@ defmodule ChronosWeb.SimLiveTest do
     assert html =~ "phx-hook=\"DspCharts\""
   end
 
+  test "controls toggle simulation", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/")
+    assert render_click(view, "toggle") =~ "Running"
+    assert render_click(view, "toggle") =~ "Pause"
+  end
+
   test "renders and handles step", %{conn: conn} do
     {:ok, view, html} = live(conn, "/")
     assert html =~ "Chronos-DSP Prototype"
