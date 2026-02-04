@@ -5,9 +5,18 @@ defmodule ChronosWeb.SimLiveTest do
     {:ok, view, html} = live(conn, "/")
     assert html =~ "BER"
     assert html =~ "Paths"
-    assert is_map(:sys.get_state(view.pid).socket.assigns.metrics)
-    assert is_list(:sys.get_state(view.pid).socket.assigns.history)
-    assert length(:sys.get_state(view.pid).socket.assigns.history) <= 60
+
+    history_count =
+      view
+      |> Phoenix.LiveViewTest.render()
+      |> Floki.parse_document!()
+      |> Floki.find("[data-history-count]")
+      |> Floki.attribute("data-history-count")
+      |> List.first()
+
+    assert is_binary(history_count)
+    {count, ""} = Integer.parse(history_count)
+    assert count <= 60
     assert render_click(view, "step") =~ "BER"
   end
 

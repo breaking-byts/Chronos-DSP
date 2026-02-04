@@ -208,7 +208,7 @@ defmodule ChronosWeb.SimLive do
           <h1>Signal Lab Dashboard</h1>
           <p class="subtitle">Top-down scene, constellation, and BER trend snapshots.</p>
         </div>
-        <div class="metrics">
+        <div class="metrics" data-history-count={length(@history)}>
           <div>
             <p class="label">BER</p>
             <p class="value"><%= Float.round(@metrics.ber, 6) %></p>
