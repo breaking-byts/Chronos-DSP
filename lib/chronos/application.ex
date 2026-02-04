@@ -4,6 +4,7 @@ defmodule Chronos.Application do
   def start(_type, _args) do
     children = [
       {Phoenix.PubSub, name: Chronos.PubSub},
+      Chronos.SimSupervisor,
       ChronosWeb.Endpoint
     ]
 
