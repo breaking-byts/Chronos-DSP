@@ -5,19 +5,31 @@ defmodule ChronosWeb.SimLive do
   alias Chronos.Modem
   alias Chronos.Packing
   alias Chronos.Sim
+  alias Chronos.SimServer
   alias Chronos.World
 
   @impl true
   def mount(_params, _session, socket) do
+    {:ok, sim} = SimServer.start_link(seed: 7, tick_ms: 100)
+    send(self(), :tick)
     world = demo_world()
     {ber, path_count} = metrics(world)
 
     {:ok,
      assign(socket,
+       sim: sim,
        world: world,
        ber: ber,
        path_count: path_count
      )}
+  end
+
+  @impl true
+  def handle_info(:tick, socket) do
+    {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
+    socket = push_event(socket, "sim_frame", frame)
+    Process.send_after(self(), :tick, 100)
+    {:noreply, socket}
   end
 
   @impl true
@@ -43,8 +55,18 @@ defmodule ChronosWeb.SimLive do
 
   defp demo_world do
     World.new()
-    |> World.add_node(%World.Node{id: :tx1, type: :tx, pos: {0.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
-    |> World.add_node(%World.Node{id: :rx1, type: :rx, pos: {2.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
+    |> World.add_node(%World.Node{
+      id: :tx1,
+      type: :tx,
+      pos: {0.0, 0.0, 0.0},
+      vel: {0.0, 0.0, 0.0}
+    })
+    |> World.add_node(%World.Node{
+      id: :rx1,
+      type: :rx,
+      pos: {2.0, 0.0, 0.0},
+      vel: {0.0, 0.0, 0.0}
+    })
     |> World.add_wall(%World.Wall{
       id: :w1,
       vertices: [{1.0, -1.0, -1.0}, {1.0, 1.0, -1.0}, {1.0, 1.0, 1.0}, {1.0, -1.0, 1.0}],
