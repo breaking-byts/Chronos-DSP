@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v mise >/dev/null 2>&1; then
+  mise install
+elif command -v asdf >/dev/null 2>&1; then
+  asdf install
+else
+  echo "Install mise or asdf, then re-run bin/setup"
+  exit 1
+fi
+
+mix deps.get
+mix deps.compile
+
+(
+  cd native/chronos_dsp
+  cargo build
+)

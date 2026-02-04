@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mix test
+
+(
+  cd native/chronos_dsp
+  cargo test
+)

@@ -1,0 +1,11 @@
+[package]
+name = "chronos_dsp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "chronos_dsp"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.29"

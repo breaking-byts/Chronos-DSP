@@ -1,0 +1,39 @@
+defmodule Chronos.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :chronos,
+      version: "0.1.0",
+      elixir: "~> 1.15",
+      start_permanent: Mix.env() == :prod,
+      compilers: [:rustler] ++ Mix.compilers(),
+      deps: deps(),
+      rustler_crates: [
+        chronos_dsp: [
+          path: "native/chronos_dsp",
+          mode: if(Mix.env() == :prod, do: :release, else: :debug)
+        ]
+      ]
+    ]
+  end
+
+  def application do
+    [
+      extra_applications: [:logger],
+      mod: {Chronos.Application, []}
+    ]
+  end
+
+  defp deps do
+    [
+      {:rustler, "~> 0.29"},
+      {:phoenix, "~> 1.7"},
+      {:phoenix_pubsub, "~> 2.1"},
+      {:phoenix_live_view, "~> 0.20"},
+      {:phoenix_html, "~> 3.3"},
+      {:plug_cowboy, "~> 2.6"},
+      {:jason, "~> 1.4"}
+    ]
+  end
+end
