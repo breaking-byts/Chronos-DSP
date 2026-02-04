@@ -61,7 +61,11 @@ defmodule ChronosWeb.SimLive do
         <p>BER: <%= Float.round(@ber, 6) %></p>
         <button phx-click="step">Step</button>
         <button phx-click="toggle"><%= if @running, do: "Pause", else: "Running" %></button>
-        <div id="dsp-charts" phx-hook="DspCharts"></div>
+        <div id="dsp-charts" phx-hook="DspCharts">
+          <div id="chart-constellation"></div>
+          <div id="chart-spectrum"></div>
+          <div id="chart-waveform"></div>
+        </div>
       </section>
     </main>
     """

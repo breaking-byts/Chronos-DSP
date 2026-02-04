@@ -19,3 +19,16 @@ body {
   overflow: auto;
   padding: 24px;
 }
+
+#dsp-charts {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+#dsp-charts > div {
+  height: 220px;
+  border-radius: 12px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+}

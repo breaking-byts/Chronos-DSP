@@ -74,7 +74,48 @@
       updated() {}
     },
     DspCharts: {
-      mounted() {},
+      mounted() {
+        this.constellation = echarts.init(this.el.querySelector("#chart-constellation"));
+        this.spectrum = echarts.init(this.el.querySelector("#chart-spectrum"));
+        this.waveform = echarts.init(this.el.querySelector("#chart-waveform"));
+        this.initCharts();
+        this.handleEvent("sim_frame", ({ dsp }) => this.updateCharts(dsp || {}));
+      },
+      initCharts() {
+        this.constellation.setOption({
+          backgroundColor: "transparent",
+          xAxis: { type: "value", min: -2, max: 2, show: false },
+          yAxis: { type: "value", min: -2, max: 2, show: false },
+          series: [{ type: "scatter", data: [] }]
+        });
+        this.spectrum.setOption({
+          backgroundColor: "transparent",
+          xAxis: { type: "value", show: false },
+          yAxis: { type: "value", show: false },
+          series: [{ type: "line", data: [], smooth: true, showSymbol: false }]
+        });
+        this.waveform.setOption({
+          backgroundColor: "transparent",
+          xAxis: { type: "value", show: false },
+          yAxis: { type: "value", show: false },
+          series: [{ type: "line", data: [], smooth: true, showSymbol: false }]
+        });
+      },
+      updateCharts(dsp) {
+        const constellation = dsp.constellation || [];
+        const spectrum = (dsp.spectrum || []).map((value, index) => [index, value]);
+        const waveform = (dsp.waveform || []).map((value, index) => [index, value]);
+
+        this.constellation.setOption({
+          series: [{ type: "scatter", data: constellation, symbolSize: 6 }]
+        });
+        this.spectrum.setOption({
+          series: [{ type: "line", data: spectrum, smooth: true, showSymbol: false }]
+        });
+        this.waveform.setOption({
+          series: [{ type: "line", data: waveform, smooth: true, showSymbol: false }]
+        });
+      },
       updated() {}
     }
   };
