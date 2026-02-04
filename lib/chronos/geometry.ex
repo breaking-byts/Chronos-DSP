@@ -106,9 +106,9 @@ defmodule Chronos.Geometry do
     {project(point, drop), Enum.map(vertices, &project(&1, drop))}
   end
 
-  defp project({x, y, z}, :x), do: {y, z}
-  defp project({x, y, z}, :y), do: {x, z}
-  defp project({x, y, z}, :z), do: {x, y}
+  defp project({_x, y, z}, :x), do: {y, z}
+  defp project({x, _y, z}, :y), do: {x, z}
+  defp project({x, y, _z}, :z), do: {x, y}
 
   defp point_in_polygon_2d({px, py}, vertices) do
     pairs = Enum.zip(vertices, tl(vertices) ++ [hd(vertices)])

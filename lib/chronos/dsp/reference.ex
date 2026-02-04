@@ -44,14 +44,21 @@ defmodule Chronos.DSP.Reference do
   def delayed_sample(tx, n, delay_samples) do
     x = n - delay_samples
 
-    if x < 0.0 or x >= length(tx) - 1 do
+    last = length(tx) - 1
+
+    if x < 0.0 or x > last do
       {0.0, 0.0}
     else
       i0 = :math.floor(x) |> trunc()
-      frac = x - i0
       {r0, i0c} = Enum.at(tx, i0)
-      {r1, i1c} = Enum.at(tx, i0 + 1)
-      {r0 * (1.0 - frac) + r1 * frac, i0c * (1.0 - frac) + i1c * frac}
+
+      if i0 == last do
+        {r0, i0c}
+      else
+        frac = x - i0
+        {r1, i1c} = Enum.at(tx, i0 + 1)
+        {r0 * (1.0 - frac) + r1 * frac, i0c * (1.0 - frac) + i1c * frac}
+      end
     end
   end
 

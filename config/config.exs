@@ -12,4 +12,12 @@ config :chronos, ChronosWeb.Endpoint,
 
 config :phoenix, :json_library, Jason
 
+erlang_root = System.get_env("ERLANG_ROOT") || "/opt/homebrew/Cellar/erlang/28.3.1/lib/erlang"
+
+config :chronos, Chronos.DSP.Native,
+  env: [
+    {"ERL_EI_INCLUDE_DIR", System.get_env("ERL_EI_INCLUDE_DIR") || Path.join(erlang_root, "usr/include")},
+    {"ERL_EI_LIBDIR", System.get_env("ERL_EI_LIBDIR") || Path.join(erlang_root, "usr/lib")}
+  ]
+
 import_config "#{config_env()}.exs"

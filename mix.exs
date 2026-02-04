@@ -27,7 +27,8 @@ defmodule Chronos.MixProject do
       {:phoenix_live_view, "~> 0.20"},
       {:phoenix_html, "~> 3.3"},
       {:plug_cowboy, "~> 2.6"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:floki, ">= 0.30.0", only: :test}
     ]
   end
 

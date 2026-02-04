@@ -35,14 +35,11 @@ defmodule Chronos.Modem do
   defp map_bits(1, 0), do: norm({1.0, -1.0})
 
   defp demap_symbol(re, im) do
-    b1 = if re < 0.0, do: 1, else: 0
-    b2 = if im < 0.0, do: 1, else: 0
-
-    case {b1, b2} do
-      {0, 0} -> [0, 0]
-      {1, 0} -> [1, 0]
-      {1, 1} -> [1, 1]
-      {0, 1} -> [0, 1]
+    cond do
+      re >= 0.0 and im >= 0.0 -> [0, 0]
+      re < 0.0 and im >= 0.0 -> [0, 1]
+      re < 0.0 and im < 0.0 -> [1, 1]
+      true -> [1, 0]
     end
   end
 

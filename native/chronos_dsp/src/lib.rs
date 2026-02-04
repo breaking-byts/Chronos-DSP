@@ -78,15 +78,21 @@ fn render_samples(
             let delay_samples = path.delay_s * sample_rate;
             let x_idx = n as f64 - delay_samples;
 
-            if x_idx < 0.0 || x_idx >= (len.saturating_sub(1)) as f64 {
+            let last = len.saturating_sub(1) as f64;
+
+            if x_idx < 0.0 || x_idx > last {
                 continue;
             }
 
             let i0 = x_idx.floor() as usize;
-            let frac = (x_idx - i0 as f64) as f32;
             let s0 = tx[i0];
-            let s1 = tx[i0 + 1];
-            let sample = s0.scale(1.0 - frac).add(s1.scale(frac));
+            let sample = if i0 == len - 1 {
+                s0
+            } else {
+                let frac = (x_idx - i0 as f64) as f32;
+                let s1 = tx[i0 + 1];
+                s0.scale(1.0 - frac).add(s1.scale(frac))
+            };
 
             let phase = (2.0 * std::f64::consts::PI) * (path.doppler_hz as f64) * t;
             let rot = Complex {
