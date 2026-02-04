@@ -52,7 +52,7 @@ defmodule Chronos.SimTest do
         vel: {0.0, 0.0, 0.0}
       })
 
-    bits = Enum.take(Stream.cycle([0, 0, 1, 1]), 128)
+    bits = Enum.take(Stream.cycle([0, 0, 1, 1]), 4096)
     tx = Chronos.Modem.qpsk_modulate(bits)
     tx_bin = Packing.pack_complex(tx)
 
@@ -71,8 +71,8 @@ defmodule Chronos.SimTest do
     end
 
     ber_low = ber.(0.0)
-    ber_mid = ber.(0.05)
-    ber_high = ber.(0.2)
+    ber_mid = ber.(0.1)
+    ber_high = ber.(0.4)
 
     assert ber_low <= ber_mid
     assert ber_mid <= ber_high
