@@ -376,6 +376,12 @@ defmodule ChronosWeb.SimLive do
     {bounds, walls, nodes}
   end
 
+  @doc """
+  Computes the scene bounds used to project scene geometry.
+
+  Empty worlds default to a centered 10x10 box spanning -5.0 to 5.0 on both axes.
+  """
+  @spec scene_bounds(Chronos.World.t()) :: %{min: {float(), float()}, max: {float(), float()}}
   def scene_bounds(world) do
     nodes = world.nodes |> Map.values() |> Enum.map(& &1.pos)
     wall_vertices = world.walls |> Map.values() |> Enum.flat_map(& &1.vertices)
