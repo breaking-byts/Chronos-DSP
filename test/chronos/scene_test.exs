@@ -16,8 +16,10 @@ defmodule Chronos.SceneTest do
     bounds = %{min: {2.0, -1.0}, max: {2.0, 3.0}}
     viewport = %{width: 200, height: 100}
 
-    assert_raise ArgumentError, ~r/zero-span bounds/i, fn ->
-      Scene.project({0.0, 0.0, 0.0}, bounds, viewport)
-    end
+    assert_raise ArgumentError,
+                 ~r/bounds must have non-zero span for x\/y: min=\{2\.0, -1\.0\} max=\{2\.0, 3\.0\}/,
+                 fn ->
+                   Scene.project({0.0, 0.0, 0.0}, bounds, viewport)
+                 end
   end
 end
