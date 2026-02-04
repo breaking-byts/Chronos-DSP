@@ -1,44 +1,51 @@
 defmodule ChronosWeb.SimLive do
   use ChronosWeb, :live_view
 
-  alias Chronos.Channel
-  alias Chronos.Modem
-  alias Chronos.Packing
-  alias Chronos.Sim
+  alias Chronos.SimFrame
   alias Chronos.SimServer
   alias Chronos.World
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, sim} = SimServer.start_link(seed: 7, tick_ms: 100)
-    send(self(), :tick)
+    tick_ms = 100
     world = demo_world()
-    {ber, path_count} = metrics(world)
+    {:ok, sim} = SimServer.start_link(seed: 7, tick_ms: tick_ms, world: world)
+    frame = SimFrame.from_world(world, tick: 0, seed: 7)
+    send(self(), :tick)
 
     {:ok,
      assign(socket,
-       sim: sim,
-       world: world,
-       ber: ber,
-       path_count: path_count,
-       running: true
-     )}
+        sim: sim,
+        frame: frame,
+        running: true,
+        tick_ms: tick_ms
+      )}
   end
 
   @impl true
   def handle_info(:tick, socket) do
-    {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
-    socket = push_event(socket, "sim_frame", frame)
-    Process.send_after(self(), :tick, 100)
+    socket =
+      if socket.assigns.running do
+        {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
+        socket
+        |> assign(frame: frame)
+        |> push_event("sim_frame", frame)
+      else
+        socket
+      end
+
+    Process.send_after(self(), :tick, socket.assigns.tick_ms)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("step", _params, socket) do
-    world = World.step(socket.assigns.world, 0.1)
-    {ber, path_count} = metrics(world)
+    {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
 
-    {:noreply, assign(socket, world: world, ber: ber, path_count: path_count)}
+    {:noreply,
+     socket
+     |> assign(frame: frame)
+     |> push_event("sim_frame", frame)}
   end
 
   @impl true
@@ -55,12 +62,34 @@ defmodule ChronosWeb.SimLive do
         <div id="sim-canvas" phx-hook="SimCanvas"></div>
       </section>
       <section class="sim-right">
-        <h1>Chronos-DSP Prototype</h1>
-        <p>Nodes: <%= map_size(@world.nodes) %> | Walls: <%= map_size(@world.walls) %></p>
-        <p>Paths to RX: <%= @path_count %></p>
-        <p>BER: <%= Float.round(@ber, 6) %></p>
-        <button phx-click="step">Step</button>
-        <button phx-click="toggle"><%= if @running, do: "Pause", else: "Running" %></button>
+        <header class="sim-header">
+          <p class="sim-kicker">Hybrid UI Rendering</p>
+          <h1>Chronos-DSP Prototype</h1>
+        </header>
+        <div class="sim-stats">
+          <div class="sim-stat">
+            <span>Nodes</span>
+            <strong><%= length(@frame.nodes) %></strong>
+          </div>
+          <div class="sim-stat">
+            <span>Walls</span>
+            <strong><%= length(@frame.walls) %></strong>
+          </div>
+          <div class="sim-stat">
+            <span>Paths to RX</span>
+            <strong><%= @frame.metrics.path_count %></strong>
+          </div>
+          <div class="sim-stat">
+            <span>BER</span>
+            <strong><%= Float.round(@frame.metrics.ber, 6) %></strong>
+          </div>
+        </div>
+        <div class="sim-controls">
+          <button class="sim-button" phx-click="step">Step</button>
+          <button class="sim-button ghost" phx-click="toggle">
+            <%= if @running, do: "Pause", else: "Running" %>
+          </button>
+        </div>
         <div id="dsp-charts" phx-hook="DspCharts">
           <div id="chart-constellation"></div>
           <div id="chart-spectrum"></div>
@@ -93,24 +122,4 @@ defmodule ChronosWeb.SimLive do
     })
   end
 
-  defp metrics(world) do
-    bits = Enum.take(Stream.cycle([0, 0, 1, 1]), 128)
-    symbols = Modem.qpsk_modulate(bits)
-    tx_bin = Packing.pack_complex(symbols)
-
-    opts = [
-      sample_rate: 48_000.0,
-      speed_of_light: 299_792_458.0,
-      noise_power: 0.0,
-      seed: 7
-    ]
-
-    rx_map = Sim.render(world, tx_bin, opts)
-    rx_bin = Map.fetch!(rx_map, :rx1)
-    rx_symbols = Packing.unpack_complex(rx_bin)
-    rx_bits = Modem.qpsk_demodulate(rx_symbols)
-    ber = Modem.ber(bits, rx_bits)
-    path_count = Channel.paths_for_rx(world, :rx1, opts) |> length()
-    {ber, path_count}
-  end
 end
