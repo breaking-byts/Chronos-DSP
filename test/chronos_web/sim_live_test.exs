@@ -15,6 +15,13 @@ defmodule ChronosWeb.SimLiveTest do
     assert html =~ "echarts"
   end
 
+  test "layout includes spatial scene columns", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/")
+    assert html =~ "class=\"sim-layout\""
+    assert html =~ "class=\"sim-left\""
+    assert html =~ "class=\"sim-right\""
+  end
+
   test "renders canvas and chart containers", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
     assert html =~ "id=\"sim-canvas\""

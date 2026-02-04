@@ -2,3 +2,20 @@ body {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;
 }
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  height: 100vh;
+}
+
+.sim-left {
+  background: #0b0f14;
+}
+
+.sim-right {
+  background: #111827;
+  color: #e5e7eb;
+  overflow: auto;
+  padding: 24px;
+}

@@ -50,15 +50,19 @@ defmodule ChronosWeb.SimLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <main style="font-family: sans-serif; padding: 24px;">
-      <h1>Chronos-DSP Prototype</h1>
-      <p>Nodes: <%= map_size(@world.nodes) %> | Walls: <%= map_size(@world.walls) %></p>
-      <p>Paths to RX: <%= @path_count %></p>
-      <p>BER: <%= Float.round(@ber, 6) %></p>
-      <button phx-click="step">Step</button>
-      <button phx-click="toggle"><%= if @running, do: "Pause", else: "Running" %></button>
-      <section id="sim-canvas" phx-hook="SimCanvas"></section>
-      <section id="dsp-charts" phx-hook="DspCharts"></section>
+    <main class="sim-layout">
+      <section class="sim-left">
+        <div id="sim-canvas" phx-hook="SimCanvas"></div>
+      </section>
+      <section class="sim-right">
+        <h1>Chronos-DSP Prototype</h1>
+        <p>Nodes: <%= map_size(@world.nodes) %> | Walls: <%= map_size(@world.walls) %></p>
+        <p>Paths to RX: <%= @path_count %></p>
+        <p>BER: <%= Float.round(@ber, 6) %></p>
+        <button phx-click="step">Step</button>
+        <button phx-click="toggle"><%= if @running, do: "Pause", else: "Running" %></button>
+        <div id="dsp-charts" phx-hook="DspCharts"></div>
+      </section>
     </main>
     """
   end
