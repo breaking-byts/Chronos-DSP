@@ -43,8 +43,18 @@ defmodule ChronosWeb.SimLive do
 
   defp demo_world do
     World.new()
-    |> World.add_node(%World.Node{id: :tx1, type: :tx, pos: {0.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
-    |> World.add_node(%World.Node{id: :rx1, type: :rx, pos: {2.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
+    |> World.add_node(%World.Node{
+      id: :tx1,
+      type: :tx,
+      pos: {0.0, 0.0, 0.0},
+      vel: {0.0, 0.0, 0.0}
+    })
+    |> World.add_node(%World.Node{
+      id: :rx1,
+      type: :rx,
+      pos: {2.0, 0.0, 0.0},
+      vel: {0.0, 0.0, 0.0}
+    })
     |> World.add_wall(%World.Wall{
       id: :w1,
       vertices: [{1.0, -1.0, -1.0}, {1.0, 1.0, -1.0}, {1.0, 1.0, 1.0}, {1.0, -1.0, 1.0}],
@@ -67,10 +77,10 @@ defmodule ChronosWeb.SimLive do
 
     rx_map = Sim.render(world, tx_bin, opts)
     rx_bin = Map.fetch!(rx_map, :rx1)
-    rx_symbols = Packing.unpack_complex(rx_bin)
+    rx_symbols = Packing.unpack_complex!(rx_bin)
     rx_bits = Modem.qpsk_demodulate(rx_symbols)
     ber = Modem.ber(bits, rx_bits)
-    path_count = Channel.paths_for_rx(world, :rx1, opts) |> length()
+    path_count = Channel.paths_for_rx!(world, :rx1, opts) |> length()
     {ber, path_count}
   end
 end

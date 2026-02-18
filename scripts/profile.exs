@@ -29,4 +29,6 @@ iterations = 200
 samples = length(symbols) * iterations
 throughput = samples / (elapsed_us / 1_000_000)
 
-IO.puts("Rendered #{samples} samples in #{elapsed_us} us (#{Float.round(throughput, 2)} samples/sec)")
+IO.puts(
+  "Rendered #{samples} samples in #{elapsed_us} us (#{Float.round(throughput, 2)} samples/sec)"
+)

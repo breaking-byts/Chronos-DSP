@@ -34,8 +34,18 @@ defmodule Chronos.WorldTest do
   test "nodes_by_type returns matching nodes" do
     world =
       World.new()
-      |> World.add_node(%World.Node{id: :tx1, type: :tx, pos: {0.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
-      |> World.add_node(%World.Node{id: :rx1, type: :rx, pos: {1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
+      |> World.add_node(%World.Node{
+        id: :tx1,
+        type: :tx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+      |> World.add_node(%World.Node{
+        id: :rx1,
+        type: :rx,
+        pos: {1.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
 
     assert [tx] = World.nodes_by_type(world, :tx)
     assert tx.id == :tx1
@@ -44,7 +54,12 @@ defmodule Chronos.WorldTest do
   test "step updates positions and time" do
     world =
       World.new()
-      |> World.add_node(%World.Node{id: :rx1, type: :rx, pos: {0.0, 0.0, 0.0}, vel: {1.0, 2.0, -1.0}})
+      |> World.add_node(%World.Node{
+        id: :rx1,
+        type: :rx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {1.0, 2.0, -1.0}
+      })
 
     world = World.step(world, 0.5)
     assert %{pos: {0.5, 1.0, -0.5}} = World.node(world, :rx1)
