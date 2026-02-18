@@ -1,13 +1,9 @@
 defmodule ChronosWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :chronos
 
-  @session_options [
-    store: :cookie,
-    key: "_chronos_key",
-    signing_salt: "tLx/9X2q"
-  ]
-
-  socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]])
+  socket("/live", Phoenix.LiveView.Socket,
+    websocket: [connect_info: [session: {__MODULE__, :runtime_session_options, []}]]
+  )
 
   plug(Plug.Static,
     at: "/",
@@ -41,6 +37,17 @@ defmodule ChronosWeb.Endpoint do
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
-  plug(Plug.Session, @session_options)
+  plug(:runtime_session)
   plug(ChronosWeb.Router)
+
+  def runtime_session_options do
+    :chronos
+    |> Application.fetch_env!(__MODULE__)
+    |> Keyword.fetch!(:session_options)
+  end
+
+  defp runtime_session(conn, _opts) do
+    opts = runtime_session_options()
+    Plug.Session.call(conn, Plug.Session.init(opts))
+  end
 end

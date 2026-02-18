@@ -2,6 +2,8 @@ defmodule Chronos.Application do
   use Application
 
   def start(_type, _args) do
+    :persistent_term.put({__MODULE__, :started_at_monotonic_s}, System.monotonic_time(:second))
+
     children = [
       {Phoenix.PubSub, name: Chronos.PubSub},
       ChronosWeb.Endpoint

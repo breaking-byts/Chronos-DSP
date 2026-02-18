@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.76.0
+          components: rustfmt, clippy
+
+      - name: Cache Mix and Rust artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+            native/chronos_dsp/target
+          key: ${{ runner.os }}-chronos-${{ hashFiles('mix.lock', 'native/chronos_dsp/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-chronos-
+
+      - name: Install Elixir dependencies
+        run: mix deps.get
+
+      - name: Compile Elixir
+        run: mix compile --warnings-as-errors
+
+      - name: Elixir format check
+        run: mix format --check-formatted
+
+      - name: Elixir tests
+        run: mix test
+
+      - name: Elixir coverage
+        run: mix test --cover
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: native/chronos_dsp
+
+      - name: Rust format check
+        run: cargo fmt --check
+        working-directory: native/chronos_dsp
+
+      - name: Rust clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: native/chronos_dsp
