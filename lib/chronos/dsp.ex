@@ -64,7 +64,15 @@ defmodule Chronos.DSP do
         priv_dir
         |> to_string()
         |> nif_artifact_candidates()
-        |> Enum.any?(&File.exists?/1)
+        |> Enum.any?(fn path ->
+          case File.read(path) do
+            {:ok, <<"\x7fELF", _::binary>>} -> true
+            {:ok, <<0xCF, 0xFA, 0xED, 0xFE, _::binary>>} -> true
+            {:ok, <<0xFE, 0xED, 0xFA, 0xCE, _::binary>>} -> true
+            {:ok, <<0xFE, 0xED, 0xFA, 0xCF, _::binary>>} -> true
+            _ -> false
+          end
+        end)
 
       _ ->
         false
