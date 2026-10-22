@@ -51,7 +51,8 @@ defmodule Chronos.SimFrame do
     Enum.flat_map(walls, fn wall ->
       plane_point = hd(wall.vertices)
 
-      with {:ok, tx_reflected} <- Geometry.reflect_point_across_plane(tx.pos, plane_point, wall.normal),
+      with {:ok, tx_reflected} <-
+             Geometry.reflect_point_across_plane(tx.pos, plane_point, wall.normal),
            {:ok, hit, _t} <-
              Geometry.segment_plane_intersect(tx_reflected, rx.pos, plane_point, wall.normal),
            true <- Geometry.point_in_polygon(hit, wall.vertices, wall.normal),

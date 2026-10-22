@@ -15,11 +15,11 @@ defmodule ChronosWeb.SimLive do
 
     {:ok,
      assign(socket,
-        sim: sim,
-        frame: frame,
-        running: true,
-        tick_ms: tick_ms
-      )}
+       sim: sim,
+       frame: frame,
+       running: true,
+       tick_ms: tick_ms
+     )}
   end
 
   @impl true
@@ -27,6 +27,7 @@ defmodule ChronosWeb.SimLive do
     socket =
       if socket.assigns.running do
         {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
+
         socket
         |> assign(frame: frame)
         |> push_event("sim_frame", frame)
@@ -121,7 +122,6 @@ defmodule ChronosWeb.SimLive do
       attenuation_db: 3.0
     })
   end
-
 
   @doc """
   Computes the scene bounds used to project scene geometry.
