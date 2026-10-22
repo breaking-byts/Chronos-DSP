@@ -45,11 +45,39 @@ defmodule Chronos.ChannelTest do
   test "paths_for_rx returns los path" do
     world =
       World.new()
-      |> World.add_node(%World.Node{id: :tx1, type: :tx, pos: {0.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}})
-      |> World.add_node(%World.Node{id: :rx1, type: :rx, pos: {0.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}})
+      |> World.add_node(%World.Node{
+        id: :tx1,
+        type: :tx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+      |> World.add_node(%World.Node{
+        id: :rx1,
+        type: :rx,
+        pos: {0.0, 1.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
 
-    [path] = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0)
+    {:ok, [path]} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0)
     assert path.delay_s == 1.0
+  end
+
+  test "paths_for_rx returns unknown_rx error for missing receiver" do
+    world =
+      World.new()
+      |> World.add_node(%World.Node{
+        id: :tx1,
+        type: :tx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+
+    assert {:error, :unknown_rx} = Channel.paths_for_rx(world, :missing_rx, speed_of_light: 1.0)
+  end
+
+  test "paths_for_rx! raises for missing receiver" do
+    world = World.new()
+    assert_raise ArgumentError, fn -> Channel.paths_for_rx!(world, :missing_rx) end
   end
 
   test "reflection path exists for single wall" do

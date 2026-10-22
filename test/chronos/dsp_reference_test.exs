@@ -10,7 +10,7 @@ defmodule Chronos.DSPReferenceTest do
     paths_bin = Packing.pack_paths([%{delay_s: 0.0, gain: 1.0, doppler_hz: 0.0}])
 
     rx_bin = Reference.render_rx_block(tx_bin, paths_bin, 1.0, 0.0, 1)
-    assert tx == Packing.unpack_complex(rx_bin)
+    assert tx == Packing.unpack_complex!(rx_bin)
   end
 
   test "delayed sample linear interpolation" do

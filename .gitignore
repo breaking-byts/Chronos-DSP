@@ -4,3 +4,7 @@
 /.elixir_ls/
 /native/chronos_dsp/target/
 /.worktrees/
+/cover/
+/priv/native/*.so
+/priv/native/*.dylib
+/priv/native/*.dll

@@ -3,8 +3,8 @@ defmodule Chronos.DSP.Reference do
 
   @spec render_rx_block(binary(), binary(), float(), float(), non_neg_integer()) :: binary()
   def render_rx_block(tx_block, paths_block, sample_rate, noise_power, seed) do
-    tx = Packing.unpack_complex(tx_block)
-    paths = Packing.unpack_paths(paths_block)
+    tx = Packing.unpack_complex!(tx_block)
+    paths = Packing.unpack_paths!(paths_block)
     rx = render_samples(tx, paths, sample_rate, noise_power, seed)
     Packing.pack_complex(rx)
   end
@@ -13,6 +13,7 @@ defmodule Chronos.DSP.Reference do
           list({float(), float()})
   def render_samples(tx, paths, sample_rate, noise_power, seed) do
     tx_len = length(tx)
+
     if tx_len == 0 do
       []
     else
