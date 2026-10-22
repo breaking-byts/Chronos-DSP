@@ -1,269 +1,99 @@
 defmodule ChronosWeb.SimLive do
   use ChronosWeb, :live_view
 
-  alias Chronos.Channel
-  alias Chronos.Metrics
-  alias Chronos.Modem
-  alias Chronos.Packing
-  alias Chronos.Scene
-  alias Chronos.Sim
+  alias Chronos.SimFrame
+  alias Chronos.SimServer
   alias Chronos.World
-
-  @history_limit 60
-  @scene_viewport %{width: 360, height: 220}
-  @constellation_viewport %{width: 260, height: 200}
-  @history_viewport %{width: 360, height: 90}
 
   @impl true
   def mount(_params, _session, socket) do
+    tick_ms = 100
     world = demo_world()
-    {metrics, history} = build_metrics(world, [])
+    {:ok, sim} = SimServer.start_link(seed: 7, tick_ms: tick_ms, world: world)
+    frame = SimFrame.from_world(world, tick: 0, seed: 7)
+    send(self(), :tick)
 
     {:ok,
      assign(socket,
-       world: world,
-       metrics: metrics,
-       history: history,
-       scene_viewport: @scene_viewport,
-       constellation_viewport: @constellation_viewport,
-       history_viewport: @history_viewport
-     )}
+        sim: sim,
+        frame: frame,
+        running: true,
+        tick_ms: tick_ms
+      )}
+  end
+
+  @impl true
+  def handle_info(:tick, socket) do
+    socket =
+      if socket.assigns.running do
+        {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
+        socket
+        |> assign(frame: frame)
+        |> push_event("sim_frame", frame)
+      else
+        socket
+      end
+
+    Process.send_after(self(), :tick, socket.assigns.tick_ms)
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("step", _params, socket) do
-    world = World.step(socket.assigns.world, 0.1)
-    {metrics, history} = build_metrics(world, socket.assigns.history)
+    {:ok, frame} = SimServer.next_frame(socket.assigns.sim)
 
-    {:noreply, assign(socket, world: world, metrics: metrics, history: history)}
+    {:noreply,
+     socket
+     |> assign(frame: frame)
+     |> push_event("sim_frame", frame)}
+  end
+
+  @impl true
+  def handle_event("toggle", _params, socket) do
+    running = !socket.assigns.running
+    {:noreply, assign(socket, running: running)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <main class="sim-root">
-      <style>
-        :root {
-          --ink: #10111c;
-          --muted: #5e647a;
-          --bg: #f4f1ec;
-          --panel: rgba(255, 255, 255, 0.92);
-          --panel-border: rgba(17, 17, 32, 0.12);
-          --accent: #d97d54;
-          --accent-2: #2f6f7f;
-        }
-
-        .sim-root {
-          font-family: "Space Grotesk", "Avenir Next", sans-serif;
-          color: var(--ink);
-          min-height: 100vh;
-          padding: 32px 24px 48px;
-          background: radial-gradient(circle at top, #f9f7f3 0%, #efe6db 55%, #e6d9cc 100%);
-        }
-
-        .sim-hero {
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: space-between;
-          gap: 24px;
-          margin-bottom: 28px;
-        }
-
-        .eyebrow {
-          text-transform: uppercase;
-          letter-spacing: 0.24em;
-          font-size: 12px;
-          color: var(--muted);
-          margin: 0 0 6px;
-        }
-
-        h1 {
-          font-size: 32px;
-          margin: 0 0 8px;
-        }
-
-        .subtitle {
-          margin: 0;
-          color: var(--muted);
-        }
-
-        .metrics {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-          gap: 12px;
-          align-items: center;
-          background: var(--panel);
-          border: 1px solid var(--panel-border);
-          padding: 16px;
-          border-radius: 16px;
-          min-width: 260px;
-        }
-
-        .metrics .label {
-          font-size: 12px;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: var(--muted);
-          margin: 0 0 4px;
-        }
-
-        .metrics .value {
-          font-size: 20px;
-          margin: 0;
-        }
-
-        .metrics button {
-          border: none;
-          background: var(--accent);
-          color: white;
-          font-weight: 600;
-          padding: 10px 16px;
-          border-radius: 10px;
-          cursor: pointer;
-        }
-
-        .sim-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-          gap: 20px;
-        }
-
-        .panel {
-          background: var(--panel);
-          border: 1px solid var(--panel-border);
-          border-radius: 18px;
-          padding: 16px;
-          box-shadow: 0 18px 30px rgba(16, 17, 28, 0.08);
-        }
-
-        .panel.wide {
-          grid-column: 1 / -1;
-        }
-
-        .panel-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: baseline;
-          margin-bottom: 12px;
-        }
-
-        .panel-header h2 {
-          margin: 0;
-          font-size: 18px;
-        }
-
-        .panel-header span {
-          color: var(--muted);
-          font-size: 12px;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        svg {
-          width: 100%;
-          height: auto;
-          display: block;
-          background: linear-gradient(140deg, rgba(240, 232, 220, 0.8), rgba(250, 249, 245, 0.4));
-          border-radius: 12px;
-          padding: 10px;
-        }
-
-        .wall {
-          fill: rgba(217, 125, 84, 0.25);
-          stroke: var(--accent);
-          stroke-width: 2;
-        }
-
-        .node.tx {
-          fill: var(--accent);
-        }
-
-        .node.rx {
-          fill: var(--accent-2);
-        }
-
-        .axis {
-          stroke: rgba(16, 17, 28, 0.2);
-          stroke-width: 1;
-        }
-
-        .point {
-          fill: var(--accent-2);
-          opacity: 0.7;
-        }
-
-        .spark {
-          fill: none;
-          stroke: var(--accent);
-          stroke-width: 2;
-        }
-
-        .spark.alt {
-          stroke: var(--accent-2);
-        }
-      </style>
-      <section class="sim-hero">
-        <div>
-          <p class="eyebrow">Chronos DSP</p>
-          <h1>Signal Lab Dashboard</h1>
-          <p class="subtitle">Top-down scene, constellation, and BER trend snapshots.</p>
-        </div>
-        <div class="metrics" data-history-count={length(@history)}>
-          <div>
-            <p class="label">BER</p>
-            <p class="value"><%= Float.round(@metrics.ber, 6) %></p>
-          </div>
-          <div>
-            <p class="label">Paths</p>
-            <p class="value"><%= @metrics.path_count %></p>
-          </div>
-          <div>
-            <p class="label">RX Power</p>
-            <p class="value"><%= Float.round(@metrics.rx_power, 3) %></p>
-          </div>
-          <button phx-click="step">Step</button>
-        </div>
+    <main class="sim-layout">
+      <section class="sim-left">
+        <div id="sim-canvas" phx-hook="SimCanvas"></div>
       </section>
-
-      <section class="sim-grid">
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Scene</h2>
-            <span>Walls + Nodes</span>
+      <section class="sim-right">
+        <header class="sim-header">
+          <p class="sim-kicker">Hybrid UI Rendering</p>
+          <h1>Chronos-DSP Prototype</h1>
+        </header>
+        <div class="sim-stats">
+          <div class="sim-stat">
+            <span>Nodes</span>
+            <strong><%= length(@frame.nodes) %></strong>
           </div>
-          <svg viewBox={"0 0 #{@scene_viewport.width} #{@scene_viewport.height}"}>
-            <%= for wall <- @metrics.scene_walls do %>
-              <polygon points={wall.points} class="wall" />
-            <% end %>
-            <%= for node <- @metrics.scene_nodes do %>
-              <circle cx={node.x} cy={node.y} r="6" class={node.class} />
-            <% end %>
-          </svg>
+          <div class="sim-stat">
+            <span>Walls</span>
+            <strong><%= length(@frame.walls) %></strong>
+          </div>
+          <div class="sim-stat">
+            <span>Paths to RX</span>
+            <strong><%= @frame.metrics.path_count %></strong>
+          </div>
+          <div class="sim-stat">
+            <span>BER</span>
+            <strong><%= Float.round(@frame.metrics.ber, 6) %></strong>
+          </div>
         </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Constellation</h2>
-            <span>RX Samples</span>
-          </div>
-          <svg viewBox={"0 0 #{@constellation_viewport.width} #{@constellation_viewport.height}"}>
-            <line x1="0" y1="100" x2={@constellation_viewport.width} y2="100" class="axis" />
-            <line x1="130" y1="0" x2="130" y2={@constellation_viewport.height} class="axis" />
-            <%= for point <- @metrics.constellation do %>
-              <circle cx={point.x} cy={point.y} r="3" class="point" />
-            <% end %>
-          </svg>
+        <div class="sim-controls">
+          <button class="sim-button" phx-click="step">Step</button>
+          <button class="sim-button ghost" phx-click="toggle">
+            <%= if @running, do: "Pause", else: "Running" %>
+          </button>
         </div>
-
-        <div class="panel wide">
-          <div class="panel-header">
-            <h2>History</h2>
-            <span>BER / Power</span>
-          </div>
-          <svg viewBox={"0 0 #{@history_viewport.width} #{@history_viewport.height}"}>
-            <polyline points={@metrics.history_ber} class="spark" />
-            <polyline points={@metrics.history_power} class="spark alt" />
-          </svg>
+        <div id="dsp-charts" phx-hook="DspCharts">
+          <div id="chart-constellation"></div>
+          <div id="chart-spectrum"></div>
+          <div id="chart-waveform"></div>
         </div>
       </section>
     </main>
@@ -292,90 +122,6 @@ defmodule ChronosWeb.SimLive do
     })
   end
 
-  defp metrics(world) do
-    bits = Enum.take(Stream.cycle([0, 0, 1, 1]), 128)
-    symbols = Modem.qpsk_modulate(bits)
-    tx_bin = Packing.pack_complex(symbols)
-
-    opts = [
-      sample_rate: 48_000.0,
-      speed_of_light: 299_792_458.0,
-      noise_power: 0.0,
-      seed: 7
-    ]
-
-    rx_map = Sim.render(world, tx_bin, opts)
-    rx_bin = Map.fetch!(rx_map, :rx1)
-    rx_symbols = Packing.unpack_complex!(rx_bin)
-    rx_bits = Modem.qpsk_demodulate(rx_symbols)
-    ber = Modem.ber(bits, rx_bits)
-
-    rx_power = Metrics.received_power(rx_symbols)
-    path_count = Channel.paths_for_rx!(world, :rx1, opts) |> length()
-
-    %{
-      ber: ber,
-      rx_power: rx_power,
-      path_count: path_count,
-      rx_symbols: rx_symbols
-    }
-  end
-
-  defp build_metrics(world, history) do
-    metrics = metrics(world)
-    history_entry = %{time_s: world.time_s, ber: metrics.ber, rx_power: metrics.rx_power}
-    history = Metrics.push_history(history, history_entry, @history_limit)
-
-    {scene_bounds, scene_walls, scene_nodes} = scene_projection(world)
-    constellation = constellation_points(metrics.rx_symbols)
-    {history_ber, history_power} = history_sparklines(history)
-
-    metrics =
-      Map.merge(metrics, %{
-        scene_bounds: scene_bounds,
-        scene_walls: scene_walls,
-        scene_nodes: scene_nodes,
-        constellation: constellation,
-        history_ber: history_ber,
-        history_power: history_power
-      })
-
-    {metrics, history}
-  end
-
-  defp scene_projection(world) do
-    bounds = scene_bounds(world)
-
-    walls =
-      world.walls
-      |> Map.values()
-      |> Enum.map(fn wall ->
-        points =
-          wall.vertices
-          |> Enum.map(fn vertex ->
-            {x, y} = Scene.project(vertex, bounds, @scene_viewport)
-            "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-          end)
-          |> Enum.join(" ")
-
-        %{points: points}
-      end)
-
-    nodes =
-      world.nodes
-      |> Map.values()
-      |> Enum.map(fn node ->
-        {x, y} = Scene.project(node.pos, bounds, @scene_viewport)
-
-        %{
-          x: Float.round(x, 2),
-          y: Float.round(y, 2),
-          class: if(node.type == :tx, do: "node tx", else: "node rx")
-        }
-      end)
-
-    {bounds, walls, nodes}
-  end
 
   @doc """
   Computes the scene bounds used to project scene geometry.
@@ -407,49 +153,5 @@ defmodule ChronosWeb.SimLive do
     min = Enum.min(values)
     max = Enum.max(values)
     if min == max, do: {min - 1.0, max + 1.0}, else: {min, max}
-  end
-
-  defp constellation_points(samples) do
-    viewport = @constellation_viewport
-
-    samples
-    |> Enum.take(80)
-    |> Enum.map(fn {re, im} ->
-      x = (re + 1.5) / 3.0 * viewport.width
-      y = (1.0 - (im + 1.5) / 3.0) * viewport.height
-      %{x: Float.round(x, 2), y: Float.round(y, 2)}
-    end)
-  end
-
-  defp history_sparklines(history) do
-    viewport = @history_viewport
-    len = max(length(history), 1)
-    x_step = viewport.width / max(len - 1, 1)
-
-    ber_max = history |> Enum.map(& &1.ber) |> Enum.max(fn -> 1.0 end)
-    power_max = history |> Enum.map(& &1.rx_power) |> Enum.max(fn -> 1.0 end)
-
-    ber =
-      history
-      |> Enum.with_index()
-      |> Enum.map(fn {entry, idx} ->
-        x = idx * x_step
-        y = (1.0 - entry.ber / max(ber_max, 1.0e-9)) * viewport.height
-        "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-      end)
-      |> Enum.join(" ")
-
-    power =
-      history
-      |> Enum.with_index()
-      |> Enum.map(fn {entry, idx} ->
-        x = idx * x_step
-        y = (1.0 - entry.rx_power / max(power_max, 1.0e-9)) * viewport.height
-        "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-      end)
-      |> Enum.join(" ")
-
-    {ber, power}
-
   end
 end

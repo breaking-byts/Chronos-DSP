@@ -66,7 +66,7 @@ defmodule Chronos.SimTest do
         )
         |> Map.fetch!(:rx1)
 
-      rx_bits = rx_bin |> Packing.unpack_complex() |> Chronos.Modem.qpsk_demodulate()
+      rx_bits = rx_bin |> Packing.unpack_complex!() |> Chronos.Modem.qpsk_demodulate()
       Chronos.Modem.ber(bits, rx_bits)
     end
 

@@ -32,7 +32,7 @@ defmodule Chronos.DSP do
 
   @spec render_rx_block(binary(), binary(), float(), float(), non_neg_integer()) :: binary()
   def render_rx_block(tx_block, paths_block, sample_rate, noise_power, seed) do
-    if nif_artifact_present?() do
+    if nif_loaded?() do
       try do
         Native.render_rx_block(tx_block, paths_block, sample_rate, noise_power, seed)
       rescue

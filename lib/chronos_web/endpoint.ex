@@ -13,6 +13,13 @@ defmodule ChronosWeb.Endpoint do
   )
 
   plug(Plug.Static,
+    at: "/assets",
+    from: :chronos,
+    gzip: false,
+    only: ~w(app.js app.css)
+  )
+
+  plug(Plug.Static,
     at: "/phoenix",
     from: :phoenix,
     gzip: false,

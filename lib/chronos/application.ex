@@ -6,6 +6,7 @@ defmodule Chronos.Application do
 
     children = [
       {Phoenix.PubSub, name: Chronos.PubSub},
+      Chronos.SimSupervisor,
       ChronosWeb.Endpoint
     ]
 
