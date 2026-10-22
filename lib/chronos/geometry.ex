@@ -78,14 +78,19 @@ defmodule Chronos.Geometry do
   end
 
   @spec point_in_polygon(vec3(), list(vec3()), vec3()) :: boolean()
+  def point_in_polygon(_point, vertices, _plane_normal) when length(vertices) < 3, do: false
+
   def point_in_polygon(point, vertices, plane_normal) do
     {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
     point_in_polygon_2d(proj_point, proj_vertices)
   end
 
   @spec segment_intersects_polygon?(vec3(), vec3(), list(vec3()), vec3()) :: boolean()
+  def segment_intersects_polygon?(_a, _b, vertices, _plane_normal) when length(vertices) < 3,
+    do: false
+
   def segment_intersects_polygon?(a, b, vertices, plane_normal) do
-    plane_point = hd(vertices)
+    [plane_point | _] = vertices
 
     case segment_plane_intersect(a, b, plane_point, plane_normal) do
       {:ok, point, _t} -> point_in_polygon(point, vertices, plane_normal)
@@ -110,8 +115,11 @@ defmodule Chronos.Geometry do
   defp project({x, _y, z}, :y), do: {x, z}
   defp project({x, y, _z}, :z), do: {x, y}
 
+  defp point_in_polygon_2d(_point, vertices) when length(vertices) < 3, do: false
+
   defp point_in_polygon_2d({px, py}, vertices) do
-    pairs = Enum.zip(vertices, tl(vertices) ++ [hd(vertices)])
+    [first | rest] = vertices
+    pairs = Enum.zip(vertices, rest ++ [first])
 
     crossings =
       Enum.count(pairs, fn {{x1, y1}, {x2, y2}} ->

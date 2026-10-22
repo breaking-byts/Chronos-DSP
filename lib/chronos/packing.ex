@@ -6,9 +6,24 @@ defmodule Chronos.Packing do
     |> IO.iodata_to_binary()
   end
 
-  @spec unpack_complex(binary()) :: list({float(), float()})
+  @spec unpack_complex(binary()) :: {:ok, list({float(), float()})} | {:error, :invalid_binary}
   def unpack_complex(bin) do
-    do_unpack_complex(bin, [])
+    if rem(byte_size(bin), 8) == 0 do
+      {:ok, do_unpack_complex(bin, [])}
+    else
+      {:error, :invalid_binary}
+    end
+  end
+
+  @spec unpack_complex!(binary()) :: list({float(), float()})
+  def unpack_complex!(bin) do
+    case unpack_complex(bin) do
+      {:ok, samples} ->
+        samples
+
+      {:error, :invalid_binary} ->
+        raise ArgumentError, "invalid complex binary payload"
+    end
   end
 
   defp do_unpack_complex(<<>>, acc), do: Enum.reverse(acc)
@@ -26,9 +41,26 @@ defmodule Chronos.Packing do
     |> IO.iodata_to_binary()
   end
 
-  @spec unpack_paths(binary()) :: list(%{delay_s: float(), gain: float(), doppler_hz: float()})
+  @spec unpack_paths(binary()) ::
+          {:ok, list(%{delay_s: float(), gain: float(), doppler_hz: float()})}
+          | {:error, :invalid_binary}
   def unpack_paths(bin) do
-    do_unpack_paths(bin, [])
+    if rem(byte_size(bin), 16) == 0 do
+      {:ok, do_unpack_paths(bin, [])}
+    else
+      {:error, :invalid_binary}
+    end
+  end
+
+  @spec unpack_paths!(binary()) :: list(%{delay_s: float(), gain: float(), doppler_hz: float()})
+  def unpack_paths!(bin) do
+    case unpack_paths(bin) do
+      {:ok, paths} ->
+        paths
+
+      {:error, :invalid_binary} ->
+        raise ArgumentError, "invalid path binary payload"
+    end
   end
 
   defp do_unpack_paths(<<>>, acc), do: Enum.reverse(acc)

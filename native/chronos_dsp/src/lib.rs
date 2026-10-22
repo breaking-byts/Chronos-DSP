@@ -1,6 +1,6 @@
 use rustler::{Binary, Env, Error, OwnedBinary};
 
-rustler::init!("Elixir.Chronos.DSP.Native", [render_rx_block]);
+rustler::init!("Elixir.Chronos.DSP.Native");
 
 #[derive(Clone, Copy)]
 struct Complex {
@@ -43,6 +43,11 @@ struct Path {
 }
 
 #[rustler::nif]
+fn nif_loaded() -> bool {
+    true
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
 fn render_rx_block<'a>(
     env: Env<'a>,
     tx_block: Binary<'a>,
@@ -51,6 +56,14 @@ fn render_rx_block<'a>(
     noise_power: f64,
     seed: u64,
 ) -> Result<Binary<'a>, Error> {
+    if !sample_rate.is_finite() || sample_rate <= 0.0 {
+        return Err(Error::BadArg);
+    }
+
+    if !noise_power.is_finite() || noise_power < 0.0 {
+        return Err(Error::BadArg);
+    }
+
     let tx = decode_complex(&tx_block)?;
     let paths = decode_paths(&paths_block)?;
     let out = render_samples(&tx, &paths, sample_rate, noise_power, seed);
@@ -70,7 +83,7 @@ fn render_samples(
     let mut rng = Rng::new(seed);
     let noise_scale = (noise_power / 2.0).sqrt() as f32;
 
-    for n in 0..len {
+    for (n, out_sample) in out.iter_mut().enumerate().take(len) {
         let t = n as f64 / sample_rate;
         let mut acc = Complex::zero();
 
@@ -104,7 +117,7 @@ fn render_samples(
         }
 
         let (nr, ni) = rng.gaussian_pair();
-        out[n] = Complex {
+        *out_sample = Complex {
             re: acc.re + nr as f32 * noise_scale,
             im: acc.im + ni as f32 * noise_scale,
         };
@@ -172,7 +185,9 @@ struct Rng {
 
 impl Rng {
     fn new(seed: u64) -> Self {
-        Self { state: seed ^ 0x9E37_79B9_7F4A_7C15 }
+        Self {
+            state: seed ^ 0x9E37_79B9_7F4A_7C15,
+        }
     }
 
     fn next_u64(&mut self) -> u64 {

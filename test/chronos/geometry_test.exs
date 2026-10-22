@@ -102,4 +102,18 @@ defmodule Chronos.GeometryTest do
     b = {0.5, 0.5, -1.0}
     assert Geometry.segment_intersects_polygon?(a, b, vertices, normal)
   end
+
+  test "degenerate polygon checks return false instead of crashing" do
+    normal = {0.0, 0.0, 1.0}
+    vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}]
+
+    refute Geometry.point_in_polygon({0.5, 0.0, 0.0}, vertices, normal)
+
+    refute Geometry.segment_intersects_polygon?(
+             {0.5, 0.0, 1.0},
+             {0.5, 0.0, -1.0},
+             vertices,
+             normal
+           )
+  end
 end

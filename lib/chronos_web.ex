@@ -1,7 +1,7 @@
 defmodule ChronosWeb do
   def live_view do
     quote do
-      use Phoenix.LiveView, layout: false
+      use Phoenix.LiveView, layout: {ChronosWeb.Layouts, :root}
     end
   end
 

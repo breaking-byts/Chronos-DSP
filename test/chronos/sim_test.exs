@@ -33,7 +33,7 @@ defmodule Chronos.SimTest do
       )
 
     rx_bin = Map.fetch!(result, :rx1)
-    assert [{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}] == Packing.unpack_complex(rx_bin)
+    assert [{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}] == Packing.unpack_complex!(rx_bin)
   end
 
   test "ber worsens as noise power increases" do
@@ -66,7 +66,7 @@ defmodule Chronos.SimTest do
         )
         |> Map.fetch!(:rx1)
 
-      rx_bits = rx_bin |> Packing.unpack_complex() |> Chronos.Modem.qpsk_demodulate()
+      rx_bits = rx_bin |> Packing.unpack_complex!() |> Chronos.Modem.qpsk_demodulate()
       Chronos.Modem.ber(bits, rx_bits)
     end
 
