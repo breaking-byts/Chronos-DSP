@@ -17,6 +17,7 @@ defmodule ChronosWeb.Router do
     pipe_through(:api)
     get("/healthz", HealthController, :health)
     get("/readyz", HealthController, :ready)
+    post("/api/simulate", SimulationController, :simulate)
   end
 
   scope "/", ChronosWeb do

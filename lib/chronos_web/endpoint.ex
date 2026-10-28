@@ -46,11 +46,13 @@ defmodule ChronosWeb.Endpoint do
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
 
   plug(Plug.Parsers,
-    parsers: [:urlencoded, :multipart, :json],
+    parsers: [:urlencoded, :multipart, ChronosWeb.SimulationParams.JSONParser],
     pass: ["*/*"],
     json_decoder: Phoenix.json_library()
   )
 
+  # This must run before method override and the router's format negotiation.
+  plug(ChronosWeb.SimulationParams.ReservedFieldPlug)
   plug(Plug.MethodOverride)
   plug(Plug.Head)
   plug(:runtime_session)
