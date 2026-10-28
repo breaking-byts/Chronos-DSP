@@ -95,6 +95,39 @@ defmodule Chronos.GeometryTest do
     refute Geometry.point_in_polygon({1.5, 0.5, 0.0}, vertices, normal)
   end
 
+  test "points on the polygon boundary count as inside" do
+    vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
+    normal = {0.0, 0.0, 1.0}
+
+    # A reflection or transmission that lands exactly on an edge is a hit.
+    assert Geometry.point_in_polygon({0.5, 1.0, 0.0}, vertices, normal)
+    assert Geometry.point_in_polygon({1.0, 0.5, 0.0}, vertices, normal)
+    assert Geometry.point_in_polygon({0.0, 0.5, 0.0}, vertices, normal)
+    assert Geometry.point_in_polygon({0.5, 0.0, 0.0}, vertices, normal)
+    assert Geometry.point_in_polygon({0.0, 0.0, 0.0}, vertices, normal)
+
+    refute Geometry.point_in_polygon({1.0, 1.5, 0.0}, vertices, normal)
+  end
+
+  test "points off the polygon plane are not inside it" do
+    vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
+    normal = {0.0, 0.0, 1.0}
+
+    refute Geometry.point_in_polygon({0.5, 0.5, 1.0}, vertices, normal)
+    refute Geometry.point_in_polygon({0.5, 0.5, -1.0}, vertices, normal)
+    assert Geometry.point_in_polygon({0.5, 0.5, 0.0}, vertices, normal)
+  end
+
+  test "strictly inside excludes the polygon boundary" do
+    vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
+    normal = {0.0, 0.0, 1.0}
+
+    assert Geometry.point_strictly_inside_polygon?({0.5, 0.5, 0.0}, vertices, normal)
+    refute Geometry.point_strictly_inside_polygon?({0.5, 1.0, 0.0}, vertices, normal)
+    refute Geometry.point_strictly_inside_polygon?({0.0, 0.0, 0.0}, vertices, normal)
+    refute Geometry.point_strictly_inside_polygon?({1.5, 0.5, 0.0}, vertices, normal)
+  end
+
   test "segment intersects polygon" do
     vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
     normal = {0.0, 0.0, 1.0}

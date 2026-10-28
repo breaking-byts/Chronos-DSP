@@ -3,23 +3,47 @@ defmodule Chronos.World do
   Mutable-by-replacement world state for the propagation simulator.
 
   Nodes are transmitters (`:tx`) or receivers (`:rx`) with a 3D position and
-  velocity. Walls are planar polygons with an attenuation in decibels.
+  velocity. Walls are planar polygons associated with a material. An optional
+  explicit reflection attenuation can override that material's reflection loss.
   """
+
+  alias Chronos.Geometry
 
   defmodule Node do
     @moduledoc "A transmitter or receiver in the world."
+
+    @type t :: %__MODULE__{
+            id: term(),
+            type: :tx | :rx,
+            pos: {float(), float(), float()},
+            vel: {float(), float(), float()}
+          }
+
     @enforce_keys [:id, :type, :pos, :vel]
     defstruct [:id, :type, :pos, :vel]
   end
 
   defmodule Wall do
-    @moduledoc "A planar polygon that reflects and occludes signals."
-    @enforce_keys [:id, :vertices, :normal, :attenuation_db]
-    defstruct [:id, :vertices, :normal, :attenuation_db]
+    @moduledoc "A planar polygon with a material that reflects and occludes signals."
+
+    @type t :: %__MODULE__{
+            id: term(),
+            vertices: list({float(), float(), float()}),
+            normal: {float(), float(), float()},
+            material: atom(),
+            attenuation_db: number() | nil
+          }
+
+    @enforce_keys [:id, :vertices, :normal]
+    defstruct [:id, :vertices, :normal, material: :concrete, attenuation_db: nil]
   end
 
   @type vec3 :: {float(), float(), float()}
   @type t :: %__MODULE__{time_s: float(), nodes: map(), walls: map()}
+
+  # Tolerance used when deciding whether a segment intersection happens in the
+  # interior of the segment rather than at one of its ends.
+  @epsilon 1.0e-9
 
   @enforce_keys [:time_s, :nodes, :walls]
   defstruct [:time_s, :nodes, :walls]
@@ -39,6 +63,62 @@ defmodule Chronos.World do
 
   @spec node(%__MODULE__{}, term()) :: Node.t() | nil
   def node(%__MODULE__{nodes: nodes}, id), do: Map.get(nodes, id)
+
+  @doc """
+  Returns true when the segment `a`-`b` intersects any wall polygon.
+
+  `ignore_ids` lists the walls that are skipped, which is how a path model
+  allows the walls it legitimately touches (the wall it reflects off, for
+  example) without treating them as occluders.
+  """
+  @spec segment_occluded_by?(Geometry.vec3(), Geometry.vec3(), [Wall.t()], [term()]) ::
+          boolean()
+  def segment_occluded_by?(_a, _b, [], _ignore_ids), do: false
+
+  def segment_occluded_by?(a, b, walls, ignore_ids) do
+    Enum.any?(walls, fn
+      %Wall{id: id, vertices: vertices, normal: normal} ->
+        id not in ignore_ids and length(vertices) >= 3 and
+          Geometry.segment_intersects_polygon?(a, b, vertices, normal)
+
+      _ ->
+        false
+    end)
+  end
+
+  @doc """
+  Returns true when the segment `a`-`b` passes *through* a wall polygon.
+
+  Unlike `segment_occluded_by?/4`, an intersection at the very end of the
+  segment does not block the path: a leg that only grazes the corner of a wall
+  it does not bounce off is not blocked by that wall.
+  """
+  @spec segment_blocked_by?(Geometry.vec3(), Geometry.vec3(), [Wall.t()], [term()]) ::
+          boolean()
+  def segment_blocked_by?(a, b, walls, ignore_ids) do
+    Enum.any?(walls, fn
+      %Wall{id: id, vertices: vertices, normal: normal} ->
+        id not in ignore_ids and length(vertices) >= 3 and
+          blocks?(a, b, vertices, normal)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp blocks?(a, b, vertices, normal) do
+    case Geometry.segment_plane_intersect(a, b, hd(vertices), normal) do
+      {:ok, point, t} ->
+        # Only an intersection in the interior of the leg, and strictly inside
+        # the wall, blocks the leg. A leg that ends on a wall (the wall it
+        # bounces off) or that grazes a wall edge passes it.
+        t > @epsilon and t < 1.0 - @epsilon and
+          Geometry.point_strictly_inside_polygon?(point, vertices, normal)
+
+      _ ->
+        false
+    end
+  end
 
   @doc """
   Moves an existing node to a new position and velocity.

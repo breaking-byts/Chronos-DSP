@@ -14,9 +14,12 @@ a deterministic pure-Elixir reference implementation otherwise.
 ## Features
 
 - **Deterministic geometric channel** (`Chronos.Channel`): line-of-sight,
-  first-order specular reflections off planar wall polygons, wall occlusion,
-  `1/r` free-space amplitude normalized at one metre, per-wall attenuation in
-  dB, and Doppler from relative velocity projected onto each path.
+  specular reflections off planar wall polygons (first order and higher, via
+  the image-source method), knife-edge diffraction around blocking walls,
+  transmission through walls, wall occlusion, `1/r` free-space amplitude
+  normalized at one metre, material-driven attenuation in dB, and Doppler from
+  relative velocity projected onto each path. Path count is capped so a busy
+  scene stays bounded.
 - **QPSK DSP** (`Chronos.Modem`, `Chronos.DSP`): QPSK modulation/demodulation,
   fractional-delay interpolation, Doppler phase rotation, complex AWGN,
   received power, and BER. Noise uses an explicit xorshift64* seed, so runs are
@@ -27,10 +30,10 @@ a deterministic pure-Elixir reference implementation otherwise.
   and RNG. The NIF is required in production and optional in dev/test; artifact
   magic is checked before loading so a missing or foreign binary degrades
   cleanly instead of crashing.
-- **Live dashboard** (`ChronosWeb.SimLive`): top-down Canvas 2D scene with LOS
-  and reflection overlays, plus vendored ECharts panels for constellation,
-  waveform, spectrum, and BER history. No PixiJS, no CDN, no frontend build
-  step.
+- **Live dashboard** (`ChronosWeb.SimLive`): top-down Canvas 2D scene with LOS,
+  reflection, diffraction, and transmission overlays, plus vendored ECharts
+  panels for constellation, waveform, spectrum, and BER history. No PixiJS, no
+  CDN, no frontend build step.
 - **Controls**: play/pause, single step, reset, speed (0.5x/1x/2x/5x), noise
   (off/low/medium/high), and scenario switching (`orbit`, `open_field`).
 - **Supervised sessions**: every browser connection owns a `Chronos.SimServer`
@@ -41,10 +44,13 @@ a deterministic pure-Elixir reference implementation otherwise.
   (`/readyz`), the latter failing with `503` when the NIF is required but not
   loadable.
 
-Physics scope: the channel is line-of-sight plus one reflection per wall. There
-is no diffraction, penetration, higher-order bouncing, or material database
-yet. The signal chain is QPSK over a complex baseband block; there is no OFDM
-or FEC.
+Physics scope: the channel covers line-of-sight, multi-order reflections
+(default up to two bounces), knife-edge diffraction, wall transmission, and a
+material catalogue with per-material reflection, transmission, and diffraction
+losses. The losses are illustrative rather than calibrated, and there is no
+frequency-selective channel, no antenna/link budget, and no 3D height-aware
+rendering yet. The signal chain is QPSK over a complex baseband block; there is
+no OFDM or FEC.
 
 ## Architecture
 

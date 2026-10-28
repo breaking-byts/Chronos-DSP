@@ -81,8 +81,85 @@ defmodule Chronos.Geometry do
   def point_in_polygon(_point, vertices, _plane_normal) when length(vertices) < 3, do: false
 
   def point_in_polygon(point, vertices, plane_normal) do
-    {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
-    point_in_polygon_2d(proj_point, proj_vertices)
+    [plane_point | _] = vertices
+
+    with {:ok, unit_normal} <- normalize(plane_normal),
+         true <- on_plane?(point, plane_point, unit_normal) do
+      {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
+
+      # A point on the boundary counts as inside: a reflection or transmission
+      # that lands exactly on a wall edge is a valid hit, not a miss.
+      point_on_polygon_2d?(proj_point, proj_vertices) or
+        point_in_polygon_2d(proj_point, proj_vertices)
+    else
+      _ -> false
+    end
+  end
+
+  @doc """
+  Returns true when the point is strictly inside the polygon.
+
+  A point on the boundary is not strictly inside: a path that only grazes a
+  wall edge passes the wall instead of being absorbed by it.
+  """
+  @spec point_strictly_inside_polygon?(vec3(), list(vec3()), vec3()) :: boolean()
+  def point_strictly_inside_polygon?(_point, vertices, _plane_normal) when length(vertices) < 3,
+    do: false
+
+  def point_strictly_inside_polygon?(point, vertices, plane_normal) do
+    [plane_point | _] = vertices
+
+    with {:ok, unit_normal} <- normalize(plane_normal),
+         true <- on_plane?(point, plane_point, unit_normal) do
+      {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
+
+      not point_on_polygon_2d?(proj_point, proj_vertices) and
+        point_in_polygon_2d(proj_point, proj_vertices)
+    else
+      _ -> false
+    end
+  end
+
+  @doc """
+  Returns the edges of a polygon as `{from, to}` vertex pairs.
+
+  The last edge closes the polygon back to its first vertex.
+  """
+  @spec polygon_edges(list(vec3())) :: [{vec3(), vec3()}]
+  def polygon_edges([]), do: []
+
+  def polygon_edges(vertices) do
+    count = length(vertices)
+
+    vertices
+    |> Enum.with_index()
+    |> Enum.map(fn {vertex, index} ->
+      {vertex, Enum.at(vertices, rem(index + 1, count))}
+    end)
+  end
+
+  @doc """
+  Returns the point on the segment `{a, b}` closest to `point`.
+
+  Degenerate (zero-length) segments collapse to their single endpoint.
+  """
+  @spec closest_point_on_segment(vec3(), {vec3(), vec3()}) :: vec3()
+  def closest_point_on_segment(point, {a, b}) do
+    ab = sub(b, a)
+    length_squared = dot(ab, ab)
+
+    if length_squared == 0.0 do
+      a
+    else
+      t = dot(sub(point, a), ab) / length_squared
+      add(a, scale(ab, clamp(t, 0.0, 1.0)))
+    end
+  end
+
+  @doc "Returns the distance from `point` to the segment `{a, b}`."
+  @spec point_segment_distance(vec3(), {vec3(), vec3()}) :: float()
+  def point_segment_distance(point, segment) do
+    distance(point, closest_point_on_segment(point, segment))
   end
 
   @spec segment_intersects_polygon?(vec3(), vec3(), list(vec3()), vec3()) :: boolean()
@@ -95,6 +172,37 @@ defmodule Chronos.Geometry do
     case segment_plane_intersect(a, b, plane_point, plane_normal) do
       {:ok, point, _t} -> point_in_polygon(point, vertices, plane_normal)
       _ -> false
+    end
+  end
+
+  defp clamp(value, min, max), do: value |> max(min) |> min(max)
+
+  # Points are considered on the plane when they are within this distance of
+  # it. Coordinates are metres, so this is far below any physical resolution.
+  @plane_epsilon 1.0e-9
+
+  defp on_plane?(point, plane_point, unit_normal) do
+    abs(dot(sub(point, plane_point), unit_normal)) <= @plane_epsilon
+  end
+
+  defp point_on_polygon_2d?(point, vertices) do
+    vertices
+    |> polygon_edges_2d()
+    |> Enum.any?(fn {from, to} -> point_on_segment_2d?(point, from, to) end)
+  end
+
+  defp polygon_edges_2d([first | rest]) do
+    Enum.zip(rest, tl(rest) ++ [first])
+  end
+
+  defp point_on_segment_2d?({px, py}, {x1, y1}, {x2, y2}) do
+    cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+
+    if abs(cross) > 1.0e-9 do
+      false
+    else
+      px >= min(x1, x2) - 1.0e-9 and px <= max(x1, x2) + 1.0e-9 and
+        py >= min(y1, y2) - 1.0e-9 and py <= max(y1, y2) + 1.0e-9
     end
   end
 

@@ -2,23 +2,44 @@ defmodule Chronos.Channel do
   @moduledoc """
   Deterministic geometric channel model.
 
-  Each transmitter/receiver pair gets a line-of-sight path when the segment is
-  not blocked, plus one first-order reflection path per visible wall. The model
-  is intentionally simple: free-space amplitude decays with `1 / distance`, wall
-  hits apply their attenuation, and Doppler is derived from the relative
-  velocity projected onto the path.
+  Each transmitter/receiver pair gets the paths that the scene geometry
+  supports:
+
+    * a line-of-sight path when the segment is not blocked;
+    * reflection paths off wall polygons, of first order and higher, found with
+      the image-source method (`Chronos.Channel.MultiBounce`);
+    * a diffracted path around the edge of a blocking wall
+      (`Chronos.Channel.Diffraction`);
+    * a transmission path through a blocking wall
+      (`Chronos.Channel.Transmission`).
+
+  The models are intentionally simple: free-space amplitude decays with
+  `1 / distance`, wall hits apply their material attenuation, and Doppler is
+  derived from the relative velocity projected onto the path. They share the
+  conventions in `Chronos.Channel.Physics`, so every path answers the same
+  questions the same way.
+
+  ## Options
+
+    * `:max_bounces` - highest reflection order to compute (default `2`)
+    * `:max_paths` - hard cap on the paths returned per receiver (default `32`)
+    * `:diffraction` - set to `false` to skip diffracted paths (default `true`)
+    * `:transmission` - set to `false` to skip penetrating paths (default `true`)
+
+  Paths are returned strongest first, so the cap keeps the paths that
+  contribute the most energy.
   """
 
+  alias Chronos.Channel.Diffraction
+  alias Chronos.Channel.MultiBounce
+  alias Chronos.Channel.Path
+  alias Chronos.Channel.Physics
+  alias Chronos.Channel.Transmission
   alias Chronos.Geometry
   alias Chronos.World
 
-  defmodule Path do
-    @moduledoc "A single propagation path between a transmitter and receiver."
-    @enforce_keys [:delay_s, :gain, :doppler_hz]
-    defstruct [:delay_s, :gain, :doppler_hz]
-
-    @type t :: %__MODULE__{delay_s: float(), gain: float(), doppler_hz: float()}
-  end
+  @default_max_bounces 2
+  @default_max_paths 32
 
   @doc """
   Returns every path from all transmitters to `rx_id`.
@@ -40,14 +61,21 @@ defmodule Chronos.Channel do
           |> Map.values()
           |> Enum.sort_by(&to_string(&1.id))
 
+        path_opts = Keyword.put_new(opts, :max_paths, @default_max_paths)
+
         paths =
           Enum.flat_map(txs, fn tx ->
             los = los_path(tx, rx, walls, opts)
-            reflections = reflection_paths(tx, rx, walls, opts)
-            Enum.reject([los | reflections], &is_nil/1)
+            reflections = MultiBounce.paths(tx, rx, walls, bounce_opts(path_opts))
+            diffraction = Diffraction.paths(tx, rx, walls, path_opts)
+            transmission = Transmission.paths(tx, rx, walls, path_opts)
+
+            sort_by_strength(
+              Enum.reject([los | reflections ++ diffraction ++ transmission], &is_nil/1)
+            )
           end)
 
-        {:ok, paths}
+        {:ok, Enum.take(paths, max_paths(path_opts))}
 
       %World.Node{} ->
         {:error, :unknown_rx}
@@ -82,10 +110,19 @@ defmodule Chronos.Channel do
       nil
     else
       distance = Geometry.distance(tx_pos, rx_pos)
-      delay_s = distance / speed_of_light(opts)
-      gain = free_space_gain(distance) * opts_attenuation(opts)
-      doppler_hz = doppler(tx_pos, tx_vel, rx_pos, rx_vel, opts)
-      %Path{delay_s: delay_s, gain: gain, doppler_hz: doppler_hz}
+      delay_s = distance / Physics.speed_of_light(opts)
+      gain = Physics.path_gain(distance, 0.0, opts)
+      doppler_hz = Physics.doppler_hz([tx_pos, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
+
+      %Path{
+        delay_s: delay_s,
+        gain: gain,
+        doppler_hz: doppler_hz,
+        kind: :los,
+        bounces: 0,
+        points: [tx_pos, rx_pos],
+        interactions: []
+      }
     end
   end
 
@@ -94,42 +131,13 @@ defmodule Chronos.Channel do
 
   The transmitter is mirrored across the wall plane. If the mirrored segment
   crosses the wall polygon and neither leg is occluded by another wall, the hit
-  point defines a valid reflection path.
+  point defines a valid reflection path. Higher-order reflections are built by
+  `Chronos.Channel.MultiBounce`.
   """
   @spec reflection_paths(World.Node.t(), World.Node.t(), list(World.Wall.t()), keyword()) ::
           list(Path.t())
-  def reflection_paths(
-        %World.Node{pos: tx_pos, vel: tx_vel},
-        %World.Node{pos: rx_pos, vel: rx_vel},
-        walls,
-        opts
-      ) do
-    Enum.flat_map(walls, fn
-      %World.Wall{
-        id: wall_id,
-        vertices: [plane_point | _] = vertices,
-        normal: normal,
-        attenuation_db: att
-      } ->
-        with {:ok, tx_reflected} <-
-               Geometry.reflect_point_across_plane(tx_pos, plane_point, normal),
-             {:ok, hit, _t} <-
-               Geometry.segment_plane_intersect(tx_reflected, rx_pos, plane_point, normal),
-             true <- Geometry.point_in_polygon(hit, vertices, normal),
-             false <- segment_occluded?(tx_pos, hit, walls, wall_id),
-             false <- segment_occluded?(hit, rx_pos, walls, wall_id) do
-          distance = Geometry.distance(tx_pos, hit) + Geometry.distance(hit, rx_pos)
-          delay_s = distance / speed_of_light(opts)
-          gain = free_space_gain(distance) * db_to_linear(-att) * opts_attenuation(opts)
-          doppler_hz = reflection_doppler(tx_pos, tx_vel, rx_pos, rx_vel, hit, opts)
-          [%Path{delay_s: delay_s, gain: gain, doppler_hz: doppler_hz}]
-        else
-          _ -> []
-        end
-
-      _ ->
-        []
-    end)
+  def reflection_paths(tx, rx, walls, opts) do
+    MultiBounce.paths(tx, rx, walls, Keyword.put(opts, :max_bounces, 1))
   end
 
   @doc """
@@ -145,53 +153,34 @@ defmodule Chronos.Channel do
           term() | nil
         ) :: boolean()
   def segment_occluded?(a, b, walls, ignore_wall_id \\ nil) do
-    Enum.any?(walls, fn
-      %World.Wall{id: id, vertices: [_ | _] = vertices, normal: normal} ->
-        id != ignore_wall_id and
-          Geometry.segment_intersects_polygon?(a, b, vertices, normal)
-
-      _ ->
-        false
-    end)
+    World.segment_occluded_by?(a, b, walls, List.wrap(ignore_wall_id))
   end
 
   @doc "Doppler shift for a direct path, in hertz."
   @spec doppler(Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), keyword()) ::
           float()
   def doppler(tx_pos, tx_vel, rx_pos, rx_vel, opts) do
-    dir = Geometry.sub(rx_pos, tx_pos)
-
-    case Geometry.normalize(dir) do
-      {:ok, unit} ->
-        rel = Geometry.sub(rx_vel, tx_vel)
-        Geometry.dot(rel, unit) / wavelength(opts)
-
-      _ ->
-        0.0
-    end
+    Physics.doppler_hz([tx_pos, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
   end
 
   @doc "Free-space amplitude, normalized so a one-metre path has unit gain."
   @spec free_space_gain(float()) :: float()
-  def free_space_gain(distance) when distance > 0.0, do: 1.0 / distance
-  def free_space_gain(_distance), do: 1.0
+  defdelegate free_space_gain(distance), to: Physics
 
   @doc "Converts a decibel ratio to linear amplitude."
   @spec db_to_linear(float()) :: float()
-  def db_to_linear(db), do: :math.pow(10.0, db / 20.0)
+  defdelegate db_to_linear(db), to: Physics
 
-  defp reflection_doppler(tx_pos, tx_vel, rx_pos, rx_vel, hit, opts) do
-    with {:ok, outgoing} <- Geometry.normalize(Geometry.sub(hit, tx_pos)),
-         {:ok, incoming} <- Geometry.normalize(Geometry.sub(rx_pos, hit)) do
-      rate = Geometry.dot(rx_vel, incoming) - Geometry.dot(tx_vel, outgoing)
-      rate / wavelength(opts)
-    else
-      _ -> 0.0
-    end
+  defp max_paths(opts), do: Keyword.get(opts, :max_paths, @default_max_paths)
+
+  defp bounce_opts(opts), do: Keyword.put_new(opts, :max_bounces, @default_max_bounces)
+
+  # Strongest paths first, ties broken by construction order, so the path cap
+  # keeps the paths that contribute the most energy.
+  defp sort_by_strength(paths) do
+    paths
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {path, index} -> {-path.gain, index} end)
+    |> Enum.map(fn {path, _index} -> path end)
   end
-
-  defp speed_of_light(opts), do: Keyword.get(opts, :speed_of_light, 299_792_458.0)
-  defp carrier_freq(opts), do: Keyword.get(opts, :carrier_freq_hz, 2.4e9)
-  defp wavelength(opts), do: speed_of_light(opts) / carrier_freq(opts)
-  defp opts_attenuation(opts), do: Keyword.get(opts, :global_gain, 1.0)
 end

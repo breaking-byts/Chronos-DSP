@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Chronos.Material`: a material catalogue (brick, concrete, drywall, glass,
+  metal, wood, plaster, plywood, reinforced concrete, soil, water) with
+  reflection, transmission, and diffraction losses in dB. Walls now carry a
+  `material` and may override the reflection loss with an explicit
+  `attenuation_db`.
+- `Chronos.Channel.MultiBounce`: reflection paths of first order and higher
+  found with the image-source method, with per-leg occlusion checks and a
+  `:max_bounces` limit (default 2).
+- `Chronos.Channel.Diffraction`: ITU-R P.526-style knife-edge diffraction
+  around the edges of blocking walls.
+- `Chronos.Channel.Transmission`: wall penetration paths whose loss comes from
+  the wall material's transmission loss.
+- `Chronos.Channel.Physics`: the propagation conventions shared by the path
+  models (free-space gain, dB conversion, path length, Doppler).
+- `Chronos.Channel.Path`: a path struct that carries the path kind, bounce
+  count, polyline, and interactions alongside the DSP fields.
+- Dashboard overlays for diffraction and transmission paths, and wall labels
+  showing the material and its effective reflection loss.
+
+### Changed
+
+- `Chronos.Channel.paths_for_rx/3` now returns line-of-sight, reflection,
+  diffraction, and transmission paths, capped by `:max_paths` (default 32) with
+  the strongest paths kept first. `:diffraction` and `:transmission` can be
+  disabled per call.
+- `Chronos.SimFrame` builds its display paths from `Chronos.Channel` instead
+  of duplicating the geometry code.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added
