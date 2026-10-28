@@ -13,10 +13,20 @@ defmodule ChronosWeb.Router do
     plug(:accepts, ["json"])
   end
 
+  pipeline :export do
+    plug(:accepts, ["csv", "json"])
+  end
+
   scope "/", ChronosWeb do
     pipe_through(:api)
     get("/healthz", HealthController, :health)
     get("/readyz", HealthController, :ready)
+  end
+
+  scope "/api", ChronosWeb do
+    pipe_through(:export)
+    get("/export/metrics", ExportController, :metrics)
+    get("/export/samples", ExportController, :samples)
   end
 
   scope "/", ChronosWeb do
