@@ -145,11 +145,13 @@ defmodule Chronos.SimFrame do
     }
   end
 
-  defp encode_path(%{points: points, kind: kind, bounces: bounces}) do
+  defp encode_path(%{points: points, kind: kind, bounces: bounces, gain: gain, delay_s: delay_s}) do
     %{
       points: Enum.map(points, &tuple_to_list/1),
       kind: to_string(kind),
-      bounces: bounces
+      bounces: bounces,
+      gain: gain,
+      delay_s: delay_s
     }
   end
 

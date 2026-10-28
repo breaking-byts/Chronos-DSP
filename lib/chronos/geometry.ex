@@ -81,12 +81,43 @@ defmodule Chronos.Geometry do
   def point_in_polygon(_point, vertices, _plane_normal) when length(vertices) < 3, do: false
 
   def point_in_polygon(point, vertices, plane_normal) do
-    {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
+    [plane_point | _] = vertices
 
-    # A point on the boundary counts as inside: a reflection or transmission
-    # that lands exactly on a wall edge is a valid hit, not a miss.
-    point_on_polygon_2d?(proj_point, proj_vertices) or
-      point_in_polygon_2d(proj_point, proj_vertices)
+    with {:ok, unit_normal} <- normalize(plane_normal),
+         true <- on_plane?(point, plane_point, unit_normal) do
+      {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
+
+      # A point on the boundary counts as inside: a reflection or transmission
+      # that lands exactly on a wall edge is a valid hit, not a miss.
+      point_on_polygon_2d?(proj_point, proj_vertices) or
+        point_in_polygon_2d(proj_point, proj_vertices)
+    else
+      _ -> false
+    end
+  end
+
+  @doc """
+  Returns true when the point is strictly inside the polygon.
+
+  A point on the boundary is not strictly inside: a path that only grazes a
+  wall edge passes the wall instead of being absorbed by it.
+  """
+  @spec point_strictly_inside_polygon?(vec3(), list(vec3()), vec3()) :: boolean()
+  def point_strictly_inside_polygon?(_point, vertices, _plane_normal) when length(vertices) < 3,
+    do: false
+
+  def point_strictly_inside_polygon?(point, vertices, plane_normal) do
+    [plane_point | _] = vertices
+
+    with {:ok, unit_normal} <- normalize(plane_normal),
+         true <- on_plane?(point, plane_point, unit_normal) do
+      {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
+
+      not point_on_polygon_2d?(proj_point, proj_vertices) and
+        point_in_polygon_2d(proj_point, proj_vertices)
+    else
+      _ -> false
+    end
   end
 
   @doc """
@@ -145,6 +176,14 @@ defmodule Chronos.Geometry do
   end
 
   defp clamp(value, min, max), do: value |> max(min) |> min(max)
+
+  # Points are considered on the plane when they are within this distance of
+  # it. Coordinates are metres, so this is far below any physical resolution.
+  @plane_epsilon 1.0e-9
+
+  defp on_plane?(point, plane_point, unit_normal) do
+    abs(dot(sub(point, plane_point), unit_normal)) <= @plane_epsilon
+  end
 
   defp point_on_polygon_2d?(point, vertices) do
     vertices

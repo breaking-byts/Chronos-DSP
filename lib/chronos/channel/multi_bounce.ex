@@ -80,6 +80,7 @@ defmodule Chronos.Channel.MultiBounce do
 
   # Two bounce orders can describe the same physical path (a ray that hits the
   # corner where two walls meet), so paths are de-duplicated by their geometry.
+  # The key rounds to nanometres, which is far below any physical resolution.
   @spec path_key(Path.t()) :: list(tuple())
   defp path_key(%Path{points: points}) do
     Enum.map(points, fn {x, y, z} -> {round(x * 1.0e9), round(y * 1.0e9), round(z * 1.0e9)} end)

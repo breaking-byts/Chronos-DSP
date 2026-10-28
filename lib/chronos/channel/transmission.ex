@@ -21,7 +21,7 @@ defmodule Chronos.Channel.Transmission do
   @type vec3 :: Geometry.vec3()
   @type opts :: keyword()
 
-  @default_max_paths 8
+  @default_max_paths 32
 
   @doc """
   Returns the transmission path for the walls crossed by the direct tx->rx

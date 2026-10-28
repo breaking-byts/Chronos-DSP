@@ -71,4 +71,37 @@ defmodule Chronos.WorldTest do
     updated = World.update_node(node, 2.0)
     assert updated.pos == {3.0, -1.0, 2.0}
   end
+
+  test "segment_occluded_by? ignores the listed walls" do
+    wall = %World.Wall{
+      id: :w1,
+      vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
+      normal: {1.0, 0.0, 0.0}
+    }
+
+    assert World.segment_occluded_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [wall], [])
+    refute World.segment_occluded_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [wall], [:w1])
+    refute World.segment_occluded_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [], [])
+  end
+
+  test "segment_blocked_by? only blocks legs that pass through a wall" do
+    wall = %World.Wall{
+      id: :w1,
+      vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
+      normal: {1.0, 0.0, 0.0}
+    }
+
+    # Straight through the middle of the wall: blocked.
+    assert World.segment_blocked_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [wall], [])
+
+    # Ending on the wall (the wall the path bounces off): not blocked.
+    refute World.segment_blocked_by?({-1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, [wall], [])
+
+    # Grazing the edge of the wall in the middle of the leg: the signal
+    # passes the edge instead of being absorbed by the wall.
+    refute World.segment_blocked_by?({-1.0, -2.0, 0.0}, {1.0, -2.0, 0.0}, [wall], [])
+
+    # An ignored wall never blocks.
+    refute World.segment_blocked_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [wall], [:w1])
+  end
 end

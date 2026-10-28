@@ -21,7 +21,7 @@ defmodule Chronos.Channel.Diffraction do
   alias Chronos.Material
   alias Chronos.World
 
-  @default_max_paths 8
+  @default_max_paths 32
 
   @doc """
   Returns the best diffracted path for every wall that blocks the direct path.

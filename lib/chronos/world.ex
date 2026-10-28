@@ -109,8 +109,11 @@ defmodule Chronos.World do
   defp blocks?(a, b, vertices, normal) do
     case Geometry.segment_plane_intersect(a, b, hd(vertices), normal) do
       {:ok, point, t} ->
+        # Only an intersection in the interior of the leg, and strictly inside
+        # the wall, blocks the leg. A leg that ends on a wall (the wall it
+        # bounces off) or that grazes a wall edge passes it.
         t > @epsilon and t < 1.0 - @epsilon and
-          Geometry.point_in_polygon(point, vertices, normal)
+          Geometry.point_strictly_inside_polygon?(point, vertices, normal)
 
       _ ->
         false
