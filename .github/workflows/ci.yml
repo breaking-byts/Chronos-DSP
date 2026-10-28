@@ -65,6 +65,9 @@ jobs:
           ldd priv/native/chronos_dsp.so || true
           mix run --no-start -e 'IO.inspect(%{loaded: Chronos.DSP.nif_loaded?(), nif_version: :erlang.system_info(:nif_version), otp: System.otp_release(), elixir: System.version()})'
 
+      - name: NIF probe (diagnostic)
+        run: mix run --no-start scripts/nif_probe.exs
+
       - name: DSP parity (diagnostic)
         run: mix test test/chronos/dsp_parity_test.exs --trace
 
