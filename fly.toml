@@ -1,0 +1,52 @@
+# Fly.io configuration for Chronos DSP.
+#
+# First deploy:
+#   fly launch --no-deploy          # creates/uses the app, keep this file
+#   fly secrets set SECRET_KEY_BASE=$(mix phx.gen.secret)
+#   fly deploy
+#
+# Values to review/change before deploying:
+#   * app            -> your globally unique Fly app name
+#   * primary_region -> the region closest to your users (`fly regions list`)
+#   * PHX_HOST       -> "<app>.fly.dev" or your custom domain
+
+app = "chronos-dsp"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PHX_SERVER = "true"
+  PHX_HOST = "chronos-dsp.fly.dev"
+  PHX_SCHEME = "https"
+  FORCE_SSL = "true"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  # Liveness: cheap, always answers once the HTTP server is up.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+  # Readiness: also verifies the Rust NIF loaded (required in prod).
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/readyz"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

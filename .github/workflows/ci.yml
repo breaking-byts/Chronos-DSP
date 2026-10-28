@@ -2,11 +2,25 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
 
 jobs:
-  test:
+  elixir:
+    name: Elixir / OTP
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -20,43 +34,62 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.76.0
-          components: rustfmt, clippy
+          toolchain: 1.89.0
 
-      - name: Cache Mix and Rust artifacts
+      - name: Cache Mix and native artifacts
         uses: actions/cache@v4
         with:
           path: |
             deps
             _build
             native/chronos_dsp/target
-          key: ${{ runner.os }}-chronos-${{ hashFiles('mix.lock', 'native/chronos_dsp/Cargo.lock') }}
+          key: ${{ runner.os }}-beam-${{ hashFiles('.tool-versions', 'mix.lock', 'native/chronos_dsp/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-chronos-
+            ${{ runner.os }}-beam-
 
-      - name: Install Elixir dependencies
+      - name: Install dependencies
         run: mix deps.get
 
-      - name: Compile Elixir
-        run: mix compile --warnings-as-errors
-
-      - name: Elixir format check
+      - name: Check formatting
         run: mix format --check-formatted
 
-      - name: Elixir tests
+      - name: Compile (warnings as errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Test
         run: mix test
 
-      - name: Elixir coverage
-        run: mix test --cover
-
-      - name: Rust tests
-        run: cargo test
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
         working-directory: native/chronos_dsp
 
-      - name: Rust format check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+          components: rustfmt, clippy
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: native/chronos_dsp/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/chronos_dsp/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
         run: cargo fmt --check
-        working-directory: native/chronos_dsp
 
-      - name: Rust clippy
+      - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-        working-directory: native/chronos_dsp
+
+      - name: Test
+        run: cargo test

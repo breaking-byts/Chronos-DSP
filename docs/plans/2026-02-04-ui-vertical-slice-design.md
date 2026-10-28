@@ -1,5 +1,10 @@
 # UI Vertical Slice Design
 
+> **Historical:** this document describes the February 2026 SVG prototype.
+> The shipped v0.2.0 dashboard uses Canvas 2D for the scene and vendored
+> ECharts for telemetry; see [../ARCHITECTURE.md](../ARCHITECTURE.md) and
+> [../architecture/hybrid-ui.md](../architecture/hybrid-ui.md).
+
 ## Goal
 Deliver a minimal LiveView dashboard that visualizes the monolithic simulator in 2D top-down view with deterministic metrics: path count, received power, constellation, and BER trend over time.
 

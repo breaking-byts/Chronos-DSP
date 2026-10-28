@@ -1,8 +1,18 @@
 defmodule Chronos.SimFrame do
+  @moduledoc """
+  Builds the single JSON-safe frame consumed by the LiveView dashboard.
+
+  A frame contains the scene geometry, every LOS/reflection path for display,
+  the latest link metrics, and a small DSP snapshot (constellation, waveform,
+  spectrum) for the first receiver.
+  """
+
   alias Chronos.Channel
   alias Chronos.Geometry
+  alias Chronos.Metrics
   alias Chronos.Modem
   alias Chronos.Packing
+  alias Chronos.Scene
   alias Chronos.Sim
   alias Chronos.World
 
@@ -10,18 +20,50 @@ defmodule Chronos.SimFrame do
   @waveform_points 128
   @spectrum_points 64
   @bit_count @constellation_points * 2
-  @sample_rate 48_000.0
-  @noise_power 0.01
 
-  def from_world(world, opts) do
+  @default_sample_rate 48_000.0
+  @default_noise_power 0.01
+
+  @type frame :: %{
+          tick: non_neg_integer(),
+          time_s: float(),
+          bounds: %{min: [float()], max: [float()]},
+          nodes: list(map()),
+          walls: list(map()),
+          paths: list(map()),
+          metrics: map(),
+          dsp: map()
+        }
+
+  @doc """
+  Builds a frame for the current world.
+
+  Options:
+
+    * `:tick` - required, monotonically increasing frame number
+    * `:seed` - deterministic noise seed (default `1`)
+    * `:sample_rate` - samples per second (default `48_000.0`)
+    * `:noise_power` - complex noise power (default `0.01`)
+    * `:bounds` - fixed viewport bounds; derived from the world when absent
+  """
+  @spec from_world(World.t(), keyword()) :: frame()
+  def from_world(%World{} = world, opts) do
     tick = Keyword.fetch!(opts, :tick)
     seed = Keyword.get(opts, :seed, 1)
-    {metrics, dsp} = build_metrics_and_dsp(world, seed + tick)
+    sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
+    noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
+    bounds = Keyword.get_lazy(opts, :bounds, fn -> Scene.bounds(world) end)
+
+    {metrics, dsp} = build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
 
     %{
       tick: tick,
-      nodes: world.nodes |> Map.values() |> Enum.map(&encode_node/1),
-      walls: world.walls |> Map.values() |> Enum.map(&encode_wall/1),
+      time_s: world.time_s,
+      bounds: Scene.to_map(bounds),
+      nodes:
+        world.nodes |> Map.values() |> Enum.sort_by(&to_string(&1.id)) |> Enum.map(&encode_node/1),
+      walls:
+        world.walls |> Map.values() |> Enum.sort_by(&to_string(&1.id)) |> Enum.map(&encode_wall/1),
       paths: build_paths(world) |> Enum.map(&encode_path/1),
       metrics: metrics,
       dsp: dsp
@@ -29,8 +71,8 @@ defmodule Chronos.SimFrame do
   end
 
   defp build_paths(world) do
-    txs = World.nodes_by_type(world, :tx)
-    rxs = World.nodes_by_type(world, :rx)
+    txs = nodes_of_type(world, :tx)
+    rxs = nodes_of_type(world, :rx)
     walls = Map.values(world.walls)
 
     Enum.flat_map(txs, fn tx ->
@@ -56,8 +98,8 @@ defmodule Chronos.SimFrame do
            {:ok, hit, _t} <-
              Geometry.segment_plane_intersect(tx_reflected, rx.pos, plane_point, wall.normal),
            true <- Geometry.point_in_polygon(hit, wall.vertices, wall.normal),
-           false <- Channel.segment_occluded?(tx.pos, hit, walls, plane_point),
-           false <- Channel.segment_occluded?(hit, rx.pos, walls, plane_point) do
+           false <- Channel.segment_occluded?(tx.pos, hit, walls, wall.id),
+           false <- Channel.segment_occluded?(hit, rx.pos, walls, wall.id) do
         [%{points: [tx.pos, hit, rx.pos], kind: :reflection}]
       else
         _ -> []
@@ -65,25 +107,43 @@ defmodule Chronos.SimFrame do
     end)
   end
 
-  defp build_metrics_and_dsp(world, seed) do
-    case World.nodes_by_type(world, :rx) do
+  defp build_metrics_and_dsp(world, seed, sample_rate, noise_power) do
+    case nodes_of_type(world, :rx) do
       [] ->
-        {%{ber: 0.0, path_count: 0}, empty_dsp()}
+        {empty_metrics(), empty_dsp()}
 
       [rx | _] ->
         bits = default_bits()
         symbols = Modem.qpsk_modulate(bits)
         tx_block = Packing.pack_complex(symbols)
-        sim_opts = [sample_rate: @sample_rate, noise_power: @noise_power, seed: seed]
+
+        sim_opts = [
+          sample_rate: sample_rate,
+          noise_power: noise_power,
+          seed: seed
+        ]
+
         rx_map = Sim.render(world, tx_block, sim_opts)
         rx_block = Map.get(rx_map, rx.id, <<>>)
         samples = Packing.unpack_complex!(rx_block)
         rx_bits = Modem.qpsk_demodulate(samples)
-        ber = Modem.ber(bits, rx_bits)
-        path_count = Channel.paths_for_rx!(world, rx.id, sim_opts) |> length()
-        dsp = build_dsp(samples)
-        {%{ber: ber, path_count: path_count}, dsp}
+        paths = Channel.paths_for_rx!(world, rx.id, sim_opts)
+
+        metrics = %{
+          ber: Modem.ber(bits, rx_bits),
+          path_count: length(paths),
+          received_power: Metrics.received_power(samples),
+          rx_id: to_string(rx.id)
+        }
+
+        {metrics, build_dsp(samples)}
     end
+  end
+
+  defp nodes_of_type(world, type) do
+    world
+    |> World.nodes_by_type(type)
+    |> Enum.sort_by(&to_string(&1.id))
   end
 
   defp encode_node(%World.Node{id: id, type: type, pos: pos, vel: vel}) do
@@ -142,8 +202,12 @@ defmodule Chronos.SimFrame do
   end
 
   defp default_bits do
-    Stream.cycle([0, 0, 1, 1])
+    Stream.cycle([0, 0, 0, 1, 1, 1, 1, 0])
     |> Enum.take(@bit_count)
+  end
+
+  defp empty_metrics do
+    %{ber: 0.0, path_count: 0, received_power: 0.0, rx_id: nil}
   end
 
   defp empty_dsp do

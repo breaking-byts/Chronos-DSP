@@ -4,10 +4,11 @@ defmodule Chronos.MixProject do
   def project do
     [
       app: :chronos,
-      version: "0.1.0",
+      version: "0.2.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      releases: releases(),
       deps: deps()
     ]
   end
@@ -16,6 +17,15 @@ defmodule Chronos.MixProject do
     [
       extra_applications: [:logger],
       mod: {Chronos.Application, []}
+    ]
+  end
+
+  defp releases do
+    [
+      chronos: [
+        include_executables_for: [:unix],
+        applications: [runtime_tools: :permanent]
+      ]
     ]
   end
 
