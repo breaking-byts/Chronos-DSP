@@ -31,6 +31,8 @@ defmodule Chronos.Channel.Diffraction do
 
     * `:diffraction` - set to `false` to disable diffraction (default `true`)
     * `:max_paths` - maximum number of paths to return (default `8`)
+    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
+      propagation options from `Chronos.Channel.Physics`
 
   Walls are processed in stable id order. If several edges on one wall have
   the same loss, polygon vertex order breaks the tie.
@@ -187,8 +189,8 @@ defmodule Chronos.Channel.Diffraction do
     gain = Physics.path_gain(total_length, total_loss_db, opts)
     doppler_hz = Physics.doppler_hz(points, tx_vel, rx_vel, wavelength)
 
-    if finite_positive?(total_length) and finite_number?(total_loss_db) and
-         finite_number?(gain) and finite_number?(doppler_hz) do
+    if Physics.finite_positive?(total_length) and Physics.finite?(total_loss_db) and
+         Physics.finite?(gain) and Physics.finite?(doppler_hz) do
       Path.new(
         delay_s: total_length / speed_of_light,
         gain: gain,
@@ -209,14 +211,7 @@ defmodule Chronos.Channel.Diffraction do
   end
 
   defp segment_occluded_by_others?(a, b, walls, ignored_ids) do
-    Enum.any?(walls, fn
-      %World.Wall{id: id, vertices: vertices, normal: normal} ->
-        not MapSet.member?(ignored_ids, id) and length(vertices) >= 3 and
-          Geometry.segment_intersects_polygon?(a, b, vertices, normal)
-
-      _ ->
-        false
-    end)
+    World.segment_occluded_by?(a, b, walls, MapSet.to_list(ignored_ids))
   end
 
   defp closest_point_on_infinite_line(point, tx_pos, direction) do
@@ -243,7 +238,7 @@ defmodule Chronos.Channel.Diffraction do
   defp positive_wavelength(opts) do
     wavelength = Physics.wavelength(opts)
 
-    if finite_positive?(wavelength) do
+    if Physics.finite_positive?(wavelength) do
       {:ok, wavelength}
     else
       :error
@@ -253,7 +248,7 @@ defmodule Chronos.Channel.Diffraction do
   defp positive_speed_of_light(opts) do
     speed_of_light = Physics.speed_of_light(opts)
 
-    if finite_positive?(speed_of_light) do
+    if Physics.finite_positive?(speed_of_light) do
       {:ok, speed_of_light}
     else
       :error
@@ -266,14 +261,6 @@ defmodule Chronos.Channel.Diffraction do
       _ -> 0
     end
   end
-
-  defp finite_positive?(number), do: finite_number?(number) and number > 0.0
-
-  defp finite_number?(number) when is_number(number) do
-    number == number and abs(number) < 1.0e308
-  end
-
-  defp finite_number?(_number), do: false
 
   defp clamp(value, min, max), do: value |> max(min) |> min(max)
 end

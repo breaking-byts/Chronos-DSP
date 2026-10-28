@@ -146,17 +146,14 @@ defmodule Chronos.Channel.TransmissionTest do
     paths_two = Transmission.paths(tx, rx, [wall1, wall2], speed_of_light: 1.0)
 
     assert length(paths_one) == 1
-    assert length(paths_two) == 2
+    assert length(paths_two) == 1
 
     gain_one = hd(paths_one).gain
-    # For two walls, each path has the SAME total loss (sum of both walls)
-    # because interactions includes ALL crossed walls
     gain_two = hd(paths_two).gain
 
-    # Both two-wall paths should have the same gain (same total loss)
-    assert Enum.map(paths_two, & &1.gain) == [gain_two, gain_two]
-    # Two walls should have lower gain than one wall (more loss)
+    # The two-wall path crosses both walls, so it pays both losses once
     assert gain_two < gain_one
+    assert hd(paths_two).interactions == [{:transmission, :w1}, {:transmission, :w2}]
   end
 
   @tag :transmission
@@ -221,11 +218,10 @@ defmodule Chronos.Channel.TransmissionTest do
       assert path.interactions == expected_interactions
     end)
 
-    # Also verify the crossing points are ordered correctly (first wall hit is a_wall at x=0.5)
-    # Actually the first wall hit from tx at x=-1 is a_wall at x=0.5, then b_wall at x=0
-    # But since we sort by id, paths are in order [:a_wall, :b_wall]
-    assert Enum.at(paths1, 0).points == [{-1.0, 0.0, 0.0}, {0.5, 0.0, 0.0}, {1.0, 0.0, 0.0}]
-    assert Enum.at(paths1, 1).points == [{-1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}]
+    # The single transmission path crosses both walls; the displayed crossing
+    # point is the first crossed wall in id order (a_wall at x = 0.5).
+    assert [path] = paths1
+    assert path.points == [{-1.0, 0.0, 0.0}, {0.5, 0.0, 0.0}, {1.0, 0.0, 0.0}]
   end
 
   @tag :transmission
@@ -278,13 +274,14 @@ defmodule Chronos.Channel.TransmissionTest do
     tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
     rx = %World.Node{id: :rx, type: :rx, pos: {2.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
-    # Default max_paths = 8
+    # One path per blocked segment, so the cap never truncates a single
+    # transmission.
     paths_default = Transmission.paths(tx, rx, walls, speed_of_light: 1.0)
-    assert length(paths_default) == 8
+    assert length(paths_default) == 1
 
     # Custom max_paths = 3
     paths_custom = Transmission.paths(tx, rx, walls, max_paths: 3, speed_of_light: 1.0)
-    assert length(paths_custom) == 3
+    assert length(paths_custom) == 1
 
     # max_paths = 0
     paths_zero = Transmission.paths(tx, rx, walls, max_paths: 0, speed_of_light: 1.0)
@@ -367,18 +364,16 @@ defmodule Chronos.Channel.TransmissionTest do
 
     paths = Transmission.paths(tx, rx, [wall_c, wall_a, wall_b], speed_of_light: 1.0)
 
-    assert length(paths) == 3
+    # One path for the blocked segment, carrying every crossed wall.
+    assert [path] = paths
 
-    # Each path should have interactions for ALL three walls, sorted by id
     expected_interactions = [
       {:transmission, :a_wall},
       {:transmission, :b_wall},
       {:transmission, :c_wall}
     ]
 
-    Enum.each(paths, fn path ->
-      assert path.interactions == expected_interactions
-    end)
+    assert path.interactions == expected_interactions
   end
 
   @tag :transmission

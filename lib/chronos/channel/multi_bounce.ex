@@ -19,6 +19,10 @@ defmodule Chronos.Channel.MultiBounce do
   @type wall :: World.Wall.t()
   @type opts :: keyword()
 
+  # The ordered wall sequences grow factorially (n walls, k bounces), so the
+  # number of candidate sequences that may be examined is capped as well.
+  @default_max_candidates 512
+
   @doc """
   Returns all reflection paths up to `max_bounces` order, capped at `max_paths`.
 
@@ -32,6 +36,11 @@ defmodule Chronos.Channel.MultiBounce do
 
     * `:max_bounces` - highest reflection order to compute (default 2, minimum 1)
     * `:max_paths`   - hard cap on returned paths (default 64)
+    * `:max_candidates` - hard cap on the wall sequences that may be examined
+      (default 512). The number of ordered sequences grows factorially with
+      the wall count and bounce order, so this bounds the work per call.
+    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
+      propagation options from `Chronos.Channel.Physics`
 
   Paths are ordered by bounce count (all first-order, then second-order, etc.),
   and within each order by the sorted wall ids of the sequence. This order is
@@ -41,15 +50,17 @@ defmodule Chronos.Channel.MultiBounce do
   def paths(tx, rx, walls, opts \\ []) do
     max_bounces = Keyword.get(opts, :max_bounces, 2) |> max(1)
     max_paths = Keyword.get(opts, :max_paths, 64) |> max(1)
+    max_candidates = Keyword.get(opts, :max_candidates, @default_max_candidates) |> max(1)
 
     # Sort walls by id for deterministic enumeration
     sorted_walls = Enum.sort_by(walls, &to_string(&1.id))
 
-    # Generate all ordered sequences of distinct walls up to max_bounces
-    sequences = generate_sequences(sorted_walls, max_bounces)
-
-    # Build paths for each sequence, stop when cap reached
-    sequences
+    # Build paths for each candidate sequence, stopping at the path cap. The
+    # candidate stream is bounded as well, because the number of ordered wall
+    # sequences grows factorially with the wall count and bounce order.
+    sorted_walls
+    |> sequence_stream(max_bounces)
+    |> Stream.take(max_candidates)
     |> Enum.reduce_while([], fn seq, acc ->
       if length(acc) >= max_paths do
         {:halt, acc}
@@ -68,22 +79,19 @@ defmodule Chronos.Channel.MultiBounce do
   # -------------------------------------------------------------------------
 
   @doc false
-  @spec generate_sequences(list(wall()), pos_integer()) :: [list(wall())]
-  defp generate_sequences(walls, max_bounces) do
-    1..max_bounces
-    |> Enum.flat_map(fn k ->
-      ordered_combinations(walls, k)
-    end)
+  @spec sequence_stream(list(wall()), pos_integer()) :: Enumerable.t()
+  defp sequence_stream(walls, max_bounces) do
+    Stream.flat_map(1..max_bounces, fn order -> ordered_combinations(walls, order) end)
   end
 
   @doc false
-  @spec ordered_combinations(list(wall()), non_neg_integer()) :: [list(wall())]
+  @spec ordered_combinations(list(wall()), non_neg_integer()) :: Enumerable.t()
   defp ordered_combinations(_walls, 0), do: [[]]
 
   defp ordered_combinations(walls, k) do
-    Enum.flat_map(walls, fn wall ->
+    Stream.flat_map(walls, fn wall ->
       remaining = Enum.reject(walls, &(&1.id == wall.id))
-      for tail <- ordered_combinations(remaining, k - 1), do: [wall | tail]
+      Stream.map(ordered_combinations(remaining, k - 1), &[wall | &1])
     end)
   end
 
@@ -245,13 +253,7 @@ defmodule Chronos.Channel.MultiBounce do
   # Check if segment is occluded by any wall NOT in ignore_ids
   @spec segment_occluded_by_any?(vec3(), vec3(), list(wall()), [term()]) :: boolean()
   defp segment_occluded_by_any?(a, b, walls, ignore_ids) do
-    Enum.any?(walls, fn
-      %World.Wall{id: id, vertices: [_ | _] = vertices, normal: normal} ->
-        id not in ignore_ids and Geometry.segment_intersects_polygon?(a, b, vertices, normal)
-
-      _ ->
-        false
-    end)
+    World.segment_occluded_by?(a, b, walls, ignore_ids)
   end
 
   # Build the final Path struct
@@ -262,7 +264,7 @@ defmodule Chronos.Channel.MultiBounce do
     total_length = Physics.path_length(points)
 
     # Guard against zero-length paths
-    if total_length <= 0.0 or not is_finite(total_length) do
+    if total_length <= 0.0 or not Physics.finite?(total_length) do
       {:error, :zero_length}
     else
       delay_s = total_length / Physics.speed_of_light(opts)
@@ -275,7 +277,7 @@ defmodule Chronos.Channel.MultiBounce do
       gain = Physics.path_gain(total_length, loss_db, opts)
 
       # Guard against non-finite gain
-      if not is_finite(gain) do
+      if not Physics.finite?(gain) do
         {:error, :non_finite_gain}
       else
         doppler_hz = Physics.doppler_hz(points, tx.vel, rx.vel, Physics.wavelength(opts))
@@ -297,12 +299,4 @@ defmodule Chronos.Channel.MultiBounce do
       end
     end
   end
-
-  defp is_finite(x) when is_float(x) do
-    # NaN check: NaN != NaN
-    # Infinity check: magnitude exceeds largest finite float (~1.8e308)
-    x == x and abs(x) < 1.0e300
-  end
-
-  defp is_finite(_), do: true
 end

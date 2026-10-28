@@ -97,6 +97,18 @@ defmodule Chronos.Channel.Physics do
   @spec global_gain(opts()) :: float()
   def global_gain(opts), do: Keyword.get(opts, :global_gain, 1.0)
 
+  @doc "Returns true when `number` is a finite float (not NaN or infinity)."
+  @spec finite?(number()) :: boolean()
+  def finite?(number) when is_number(number) do
+    number == number and abs(number) < 1.0e308
+  end
+
+  def finite?(_number), do: false
+
+  @doc "Returns true when `number` is a finite, strictly positive float."
+  @spec finite_positive?(number()) :: boolean()
+  def finite_positive?(number), do: finite?(number) and number > 0.0
+
   defp last_leg_direction([first, second]), do: Geometry.normalize(Geometry.sub(second, first))
 
   defp last_leg_direction(points) do

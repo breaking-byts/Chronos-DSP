@@ -7,6 +7,8 @@ defmodule Chronos.World do
   explicit reflection attenuation can override that material's reflection loss.
   """
 
+  alias Chronos.Geometry
+
   defmodule Node do
     @moduledoc "A transmitter or receiver in the world."
 
@@ -57,6 +59,28 @@ defmodule Chronos.World do
 
   @spec node(%__MODULE__{}, term()) :: Node.t() | nil
   def node(%__MODULE__{nodes: nodes}, id), do: Map.get(nodes, id)
+
+  @doc """
+  Returns true when the segment `a`-`b` intersects any wall polygon.
+
+  `ignore_ids` lists the walls that are skipped, which is how a path model
+  allows the walls it legitimately touches (the wall it reflects off, for
+  example) without treating them as occluders.
+  """
+  @spec segment_occluded_by?(Geometry.vec3(), Geometry.vec3(), [Wall.t()], [term()]) ::
+          boolean()
+  def segment_occluded_by?(_a, _b, [], _ignore_ids), do: false
+
+  def segment_occluded_by?(a, b, walls, ignore_ids) do
+    Enum.any?(walls, fn
+      %Wall{id: id, vertices: vertices, normal: normal} ->
+        id not in ignore_ids and length(vertices) >= 3 and
+          Geometry.segment_intersects_polygon?(a, b, vertices, normal)
+
+      _ ->
+        false
+    end)
+  end
 
   @doc """
   Moves an existing node to a new position and velocity.

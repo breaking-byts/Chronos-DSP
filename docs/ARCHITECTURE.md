@@ -97,8 +97,9 @@ tick are UI-local state.
 - Diffraction uses an ITU-R P.526-style single knife edge: for each blocking
   wall, the edge closest to the direct line gives a Fresnel parameter, and the
   knife-edge loss is added to the wall material's diffraction loss.
-- Transmission paths exist only when the direct segment is blocked, and they
-  accumulate the transmission loss of every wall they cross.
+- Transmission paths exist only when the direct segment is blocked. There is one
+  per blocked segment, and it accumulates the transmission loss of every wall
+  it crosses exactly once.
 - Walls carry a material (`Chronos.Material`) with reflection, transmission, and
   diffraction losses in dB. An explicit `attenuation_db` on a wall overrides
   the material's reflection loss; the other two always come from the material.

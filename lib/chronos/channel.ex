@@ -150,14 +150,7 @@ defmodule Chronos.Channel do
           term() | nil
         ) :: boolean()
   def segment_occluded?(a, b, walls, ignore_wall_id \\ nil) do
-    Enum.any?(walls, fn
-      %World.Wall{id: id, vertices: [_ | _] = vertices, normal: normal} ->
-        id != ignore_wall_id and
-          Geometry.segment_intersects_polygon?(a, b, vertices, normal)
-
-      _ ->
-        false
-    end)
+    World.segment_occluded_by?(a, b, walls, List.wrap(ignore_wall_id))
   end
 
   @doc "Doppler shift for a direct path, in hertz."

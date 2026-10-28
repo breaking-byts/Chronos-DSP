@@ -326,6 +326,39 @@ defmodule Chronos.Channel.MultiBounceTest do
   # Edge cases
   # -------------------------------------------------------------------------
 
+  test "candidate enumeration is bounded" do
+    # Twelve walls produce 12 + 132 + 1320 ordered sequences for three bounce
+    # orders, so the candidate cap has to bound the work per call.
+    walls =
+      for index <- 1..12 do
+        %World.Wall{
+          id: :"wall_#{index}",
+          vertices: [
+            {index * 3.0, -2.0, -2.0},
+            {index * 3.0, 2.0, -2.0},
+            {index * 3.0, 2.0, 2.0},
+            {index * 3.0, -2.0, 2.0}
+          ],
+          normal: {1.0, 0.0, 0.0},
+          attenuation_db: 0.0
+        }
+      end
+
+    tx = %World.Node{id: :tx, type: :tx, pos: {1.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx, type: :rx, pos: {2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+
+    paths =
+      MultiBounce.paths(tx, rx, walls,
+        max_bounces: 3,
+        max_candidates: 5,
+        max_paths: 64,
+        speed_of_light: 1.0
+      )
+
+    # At most one path per examined candidate sequence.
+    assert length(paths) <= 5
+  end
+
   test "no walls returns empty list" do
     tx = %World.Node{id: :tx, type: :tx, pos: {0.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
     rx = %World.Node{id: :rx, type: :rx, pos: {1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
