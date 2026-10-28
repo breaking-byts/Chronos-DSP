@@ -1,0 +1,38 @@
+# Local production-like deployment.
+#
+#   docker compose up --build
+#   open http://localhost:4000
+#
+# For a real deployment, provide SECRET_KEY_BASE explicitly instead of relying
+# on the development default below.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chronos-dsp:0.2.0
+    ports:
+      - "4000:4000"
+    environment:
+      PHX_SERVER: "true"
+      PHX_HOST: localhost
+      PHX_SCHEME: http
+      PHX_URL_PORT: "4000"
+      FORCE_SSL: "false"
+      PORT: "4000"
+      # Development-only fallback (>= 64 bytes). Override in production:
+      #   SECRET_KEY_BASE=$(mix phx.gen.secret) docker compose up
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:-dev_only_secret_key_base_0123456789abcdef0123456789abcdef0123456789abcdef}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4000/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

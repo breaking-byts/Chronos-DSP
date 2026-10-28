@@ -1,5 +1,11 @@
 # UI Vertical Slice Implementation Plan
 
+> **Historical:** this plan describes the February 2026 server-rendered SVG
+> prototype. It was superseded by the v0.2.0 Canvas 2D + ECharts dashboard.
+> See [../ARCHITECTURE.md](../ARCHITECTURE.md) and
+> [../architecture/hybrid-ui.md](../architecture/hybrid-ui.md) for the current
+> design. Do not follow the implementation steps below.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a deterministic LiveView dashboard with 2D scene projection, constellation plot, and BER/power trend history.

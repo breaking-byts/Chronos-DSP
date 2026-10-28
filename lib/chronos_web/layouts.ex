@@ -1,4 +1,5 @@
 defmodule ChronosWeb.Layouts do
+  @moduledoc "Shared HTML shell for the dashboard."
   use Phoenix.Component
 
   def root(assigns) do
@@ -8,8 +9,14 @@ defmodule ChronosWeb.Layouts do
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark" />
+        <meta
+          name="description"
+          content="Chronos-DSP is a real-time wireless propagation simulator with an Elixir control plane and Rust DSP data plane."
+        />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
-        <title>Chronos DSP</title>
+        <title>Chronos-DSP · Wireless propagation lab</title>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="stylesheet" href="/assets/app.css" />
       </head>
       <body>
@@ -17,18 +24,8 @@ defmodule ChronosWeb.Layouts do
 
         <script src="/phoenix/phoenix.js"></script>
         <script src="/live/phoenix_live_view.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/pixi.js@8/dist/pixi.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+        <script src="/assets/vendor/echarts.min.js"></script>
         <script src="/assets/app.js"></script>
-        <script>
-          let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
-          let liveSocket = new LiveSocket("/live", Phoenix.Socket, {
-            params: {_csrf_token: csrfToken},
-            hooks: window.liveHooks || {}
-          });
-          liveSocket.connect();
-          window.liveSocket = liveSocket;
-        </script>
       </body>
     </html>
     """

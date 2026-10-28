@@ -1,0 +1,43 @@
+# Version control / local metadata
+.git
+.gitignore
+.gitattributes
+.github
+.worktrees
+.cline
+.vscode
+.idea
+.DS_Store
+
+# Build artifacts (always rebuilt inside the image)
+_build
+deps
+cover
+erl_crash.dump
+native/**/target
+priv/native/*.so
+priv/native/*.dylib
+priv/native/*.dll
+
+# Frontend dependencies (assets are prebuilt in priv/static)
+node_modules
+assets/node_modules
+
+# Tests, docs, screenshots, dev tooling
+test
+docs
+screenshots
+.elixir_ls
+.formatter.exs
+bin
+scripts
+*.md
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# NOTE: priv/static and priv/static/vendor are intentionally NOT excluded.
+#       The release serves those files directly (app.js, app.css,
+#       vendor/echarts.min.js), so they must be present in the build context.

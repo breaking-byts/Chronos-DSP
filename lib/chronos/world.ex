@@ -1,13 +1,25 @@
 defmodule Chronos.World do
+  @moduledoc """
+  Mutable-by-replacement world state for the propagation simulator.
+
+  Nodes are transmitters (`:tx`) or receivers (`:rx`) with a 3D position and
+  velocity. Walls are planar polygons with an attenuation in decibels.
+  """
+
   defmodule Node do
+    @moduledoc "A transmitter or receiver in the world."
     @enforce_keys [:id, :type, :pos, :vel]
     defstruct [:id, :type, :pos, :vel]
   end
 
   defmodule Wall do
+    @moduledoc "A planar polygon that reflects and occludes signals."
     @enforce_keys [:id, :vertices, :normal, :attenuation_db]
     defstruct [:id, :vertices, :normal, :attenuation_db]
   end
+
+  @type vec3 :: {float(), float(), float()}
+  @type t :: %__MODULE__{time_s: float(), nodes: map(), walls: map()}
 
   @enforce_keys [:time_s, :nodes, :walls]
   defstruct [:time_s, :nodes, :walls]
@@ -27,6 +39,24 @@ defmodule Chronos.World do
 
   @spec node(%__MODULE__{}, term()) :: Node.t() | nil
   def node(%__MODULE__{nodes: nodes}, id), do: Map.get(nodes, id)
+
+  @doc """
+  Moves an existing node to a new position and velocity.
+
+  Returns `{:ok, world}` or `{:error, :unknown_node}`. Prefer this over
+  `add_node/2` when updating kinematics because it will not silently create a
+  node with a typoed id.
+  """
+  @spec move_node(t(), term(), vec3(), vec3()) :: {:ok, t()} | {:error, :unknown_node}
+  def move_node(%__MODULE__{nodes: nodes} = world, id, pos, vel) do
+    case Map.fetch(nodes, id) do
+      {:ok, %Node{} = node} ->
+        {:ok, %{world | nodes: Map.put(nodes, id, %{node | pos: pos, vel: vel})}}
+
+      :error ->
+        {:error, :unknown_node}
+    end
+  end
 
   @spec wall(%__MODULE__{}, term()) :: Wall.t() | nil
   def wall(%__MODULE__{walls: walls}, id), do: Map.get(walls, id)

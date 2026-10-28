@@ -1,5 +1,10 @@
 # Frame Payload Shape Implementation Plan
 
+> **Historical:** this plan describes the first minimal frame shape. The current
+> frame also carries viewport bounds, display paths, metrics, and a DSP snapshot;
+> see [../ARCHITECTURE.md](../ARCHITECTURE.md) and
+> [../architecture/hybrid-ui.md](../architecture/hybrid-ui.md).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add a simulation frame payload shape with nodes, walls, paths, and metrics.

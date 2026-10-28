@@ -1,5 +1,11 @@
 # Scene Bounds Helper Documentation Implementation Plan
 
+> **Historical and not implemented as written:** `ChronosWeb.SimLive` never
+> gained a public `scene_bounds/1`. Bounds moved to `Chronos.Scene.bounds/2`,
+> which derives them from nodes and wall vertices. See
+> [../ARCHITECTURE.md](../ARCHITECTURE.md). This file is retained as a record of
+> the earlier plan.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add `@doc` and `@spec` annotations to the public `scene_bounds/1` helper so default bounds behavior is documented and tested.

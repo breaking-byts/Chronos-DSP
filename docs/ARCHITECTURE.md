@@ -2,25 +2,138 @@
 
 ## Overview
 
-Chronos-DSP is split into two layers:
+Chronos-DSP is a single Elixir/Phoenix application with a Rust NIF for the
+sample-level signal path. The simulator is fully three-dimensional; the default
+dashboard renders a top-down XY view.
 
-- `lib/`: Elixir control-plane for world modeling, channel/path computation, simulation orchestration, and web UI.
-- `native/chronos_dsp/`: Rust NIF data-plane for sample-level DSP rendering.
+- `lib/`: control plane (world modeling, channel/path computation, simulation
+  orchestration, metrics) and the Phoenix web UI.
+- `native/chronos_dsp/`: Rust NIF data plane, compiled by Rustler into
+  `priv/native/chronos_dsp.so` during `mix compile`.
 
-## Module Map
+## Module map
 
-- `Chronos.World`: world state, nodes, walls, and kinematic stepping.
-- `Chronos.Geometry`: vector/plane/polygon math used by channel computations.
-- `Chronos.Channel`: LOS/reflection path derivation between TX and RX nodes.
-- `Chronos.Packing`: binary packing/unpacking between Elixir and NIF.
-- `Chronos.DSP`: NIF wrapper with controlled fallback behavior.
-- `Chronos.Sim`: per-RX block rendering orchestration.
-- `ChronosWeb.*`: Phoenix endpoint/router/live view and health/readiness HTTP endpoints.
+| Module | Responsibility |
+| --- | --- |
+| `Chronos.World` | Immutable-by-replacement world state: `Node` (`:tx`/`:rx`) and planar `Wall` structs, lookup, and kinematic `step/2`. |
+| `Chronos.Geometry` | Vector, plane, reflection, polygon containment, and segment/polygon intersection math. |
+| `Chronos.Channel` | LOS and first-order reflection paths; occlusion tests; free-space gain, wall attenuation, and Doppler. |
+| `Chronos.Scenario` | Built-in `orbit` / `open_field` worlds, viewport bounds, and per-tick kinematics. |
+| `Chronos.Packing` | Little-endian binary format for complex blocks (8 bytes/sample) and paths (16 bytes/path). |
+| `Chronos.DSP` | NIF entry point, artifact presence/magic validation, one-time fallback warning, and fail-fast in production. |
+| `Chronos.DSP.Native` | Rustler declarations: `nif_loaded/0`, `render_rx_block/5`. |
+| `Chronos.DSP.Reference` | Pure-Elixir renderer with the same tick order and xorshift64* RNG as the NIF. |
+| `Chronos.Sim` | Renders one complex block per receiver, packing that receiver's paths. |
+| `Chronos.Modem` | QPSK modulation/demodulation and BER. |
+| `Chronos.Metrics` | Mean complex power and bounded history. |
+| `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
+| `Chronos.SimFrame` | JSON-safe frame: tick, time, bounds, nodes, walls, display paths, metrics, DSP snapshot. |
+| `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. |
+| `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
+| `Chronos.Runtime` | App version, build/runtime env, NIF status, timestamp, uptime for health JSON. |
+| `ChronosWeb.SimLive` | LiveView that starts/stops a session and pushes frames to two hooks. |
+| `ChronosWeb.HealthController` | `/healthz` and `/readyz`. |
+| `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
 
-## Data Flow
+## Supervision tree
 
-1. UI or caller creates/updates a `Chronos.World`.
-2. `Chronos.Sim.render/3` computes channel paths per RX via `Chronos.Channel`.
-3. Paths and TX symbols are packed into binaries with `Chronos.Packing`.
-4. `Chronos.DSP.render_rx_block/5` invokes Rust NIF (or reference fallback in non-prod).
-5. RX sample blocks are returned to callers and optionally demodulated in UI metrics.
+```text
+Chronos.Supervisor (one_for_one)
+├── Phoenix.PubSub (Chronos.PubSub)
+├── Chronos.SimSupervisor (DynamicSupervisor, one_for_one)
+│   └── Chronos.SimServer (temporary, one per connected LiveView; monitors owner)
+└── ChronosWeb.Endpoint
+```
+
+`SimLive.mount/3` starts a session only for connected sockets. The session
+monitors the LiveView process and stops on `:DOWN`; `SimLive.terminate/2` also
+stops it explicitly. A crashed session is not restarted, because its world and
+tick are UI-local state.
+
+## Data flow
+
+1. `SimLive` starts a `SimServer` with a scenario id, seed `7`, tick interval,
+   and noise power.
+2. On each tick, `SimServer.next_frame/1` calls `SimFrame.from_world/2` for the
+   current world, then advances the scenario by `tick_ms / 1000` seconds.
+3. `SimFrame`:
+   - computes display paths directly from `Channel`/`Geometry` (LOS lines and
+     reflection polylines);
+   - builds a deterministic QPSK block, packs it, and calls `Sim.render/3`;
+   - demodulates the first receiver's samples and computes BER, path count, and
+     mean received power;
+   - builds a DSP snapshot (128 constellation points, 128 waveform samples,
+     64-bin naive DFT magnitude).
+4. `Sim.render/3` asks `Channel.paths_for_rx!/3` for each receiver, packs paths,
+   and calls `Chronos.DSP.render_rx_block/5`.
+5. `Chronos.DSP` uses the NIF when loaded; otherwise it falls back to
+   `Reference` outside production and raises when `:require_nif` is true.
+6. `SimLive` assigns the frame and pushes it as the `sim_frame` event. The
+   `SimCanvas` hook draws it with Canvas 2D; `DspCharts` updates ECharts and
+   keeps a 120-point BER history.
+
+## Channel model
+
+- Free-space amplitude is `1 / distance`, normalized so a one-metre path has
+  unit gain. It is not a calibrated FSPL link budget (no antenna gains,
+  wavelength term, or transmit power).
+- A wall blocks the LOS path when the segment intersects its polygon.
+- Each wall yields at most one first-order reflection: mirror the transmitter
+  across the wall plane, intersect the mirrored segment with the plane, require
+  the hit point to lie inside the polygon, and reject paths whose legs are
+  occluded by another wall.
+- Reflection gain is `1 / total_distance` multiplied by the wall's linear
+  attenuation.
+- Doppler is `dot(relative_velocity, path_direction) / wavelength`, with carrier
+  frequency defaulting to 2.4 GHz and `c` to 299,792,458 m/s. Reflection
+  Doppler uses the incoming and outgoing legs separately.
+- No diffraction, penetration, multi-bounce, material database, or calibrated
+  path-loss exponent.
+
+## DSP contract
+
+`render_rx_block(tx_block, paths_block, sample_rate, noise_power, seed)`:
+
+- `tx_block`: little-endian `{f32 re, f32 im}` per sample.
+- `paths_block`: little-endian `{f64 delay_s, f32 gain, f32 doppler_hz}` per
+  path.
+- Output: the same complex layout as `tx_block`, one output sample per input
+  sample.
+- The renderer linearly interpolates fractional delays, multiplies each path by
+  `gain * exp(j * 2π * doppler_hz * t)`, sums paths, and adds complex Gaussian
+  noise with power `noise_power` (variance split across I/Q).
+- Randomness is xorshift64* with the seed XORed by `0x9E3779B97F4A7C15`; the
+  Elixir reference reproduces the NIF's sequence for differential testing.
+
+## Native artifact handling
+
+`Chronos.DSP.nif_loaded?/0` checks for `chronos_dsp` / `libchronos_dsp` with
+`.so`, `.dylib`, `.dll`, or no extension in `priv/native`, then reads the first
+four bytes and accepts ELF, Mach-O (both endiannesses), or PE magic. Only then
+does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
+`UndefinedFunctionError`. Tests can force the answer with the
+`:nif_loaded_override` application env.
+
+## Web/UI
+
+- No Node build step. `priv/static/app.js` registers `SimCanvas` and
+  `DspCharts`, connects the LiveView socket, and is served as a static file.
+- Phoenix, LiveView, and ECharts scripts are served from the app or vendored
+  under `priv/static/vendor/`; there are no CDN dependencies.
+- The scene hook uses `ResizeObserver`, caps device pixel ratio at 2.5, and
+  draws on `requestAnimationFrame`. ECharts updates are coalesced per frame.
+- `/healthz` and `/readyz` use the `:api` pipeline; `/` is a LiveView in the
+  `:browser` pipeline with CSRF protection and secure headers.
+- Production defaults to forced SSL with HSTS
+  (`FORCE_SSL=true`/`PHX_SCHEME=https`). `/healthz` and `/readyz` are excluded
+  from the redirect so internal probes work; `FORCE_SSL=false` is available for
+  local containers. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Known limitations
+
+- One reflection per wall; single transmitter/receiver per path computation in
+  the demo, though `World` supports multiple nodes.
+- The page renders a top-down projection; Z affects geometry and path delays but
+  not the rendered layout.
+- Per-connection sessions are in-memory only. There is no persistence,
+  authentication, or multi-user collaboration.
