@@ -17,6 +17,11 @@ defmodule ChronosWeb.Router do
     pipe_through(:api)
     get("/healthz", HealthController, :health)
     get("/readyz", HealthController, :ready)
+
+    get("/api/scenes", SceneController, :index)
+    post("/api/scenes", SceneController, :create)
+    get("/api/scenes/:name", SceneController, :show)
+    delete("/api/scenes/:name", SceneController, :delete)
   end
 
   scope "/", ChronosWeb do
