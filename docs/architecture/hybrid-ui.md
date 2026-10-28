@@ -32,8 +32,10 @@ A frame contains:
   tick, time_s,
   bounds: %{min: [x, y], max: [x, y]},
   nodes: [%{id, type, pos: [x, y, z], vel: [x, y, z]}],
-  walls: [%{id, vertices: [[x, y, z], ...], normal: [x, y, z], attenuation_db}],
-  paths: [%{kind: "los" | "reflection", points: [[x, y, z], ...]}],
+  walls: [%{id, vertices: [[x, y, z], ...], normal: [x, y, z], attenuation_db,
+           material, loss_db}],
+  paths: [%{kind: "los" | "reflection" | "diffraction" | "transmission",
+            bounces, points: [[x, y, z], ...]}],
   metrics: %{ber, path_count, received_power, rx_id},
   dsp: %{constellation: [[i, q], ...], waveform: [f32, ...], spectrum: [f32, ...]}
 }
@@ -46,7 +48,9 @@ A frame contains:
 - Draws on `requestAnimationFrame`; a new frame replaces the pending one.
 - Fits `frame.bounds` into the element with padding, flips Y for screen
   coordinates, then draws grid, walls, paths, nodes, and a scale bar.
-- LOS paths are solid cyan; reflections are dashed orange.
+- LOS paths are solid cyan; reflections are dashed orange; diffracted paths
+  are long-dashed violet; penetrating paths are dotted pink.
+- Wall labels show the material and its effective reflection loss.
 - Before the first frame it draws a "Waiting for the first simulation frame"
   placeholder.
 
