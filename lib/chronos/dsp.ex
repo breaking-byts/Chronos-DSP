@@ -80,15 +80,21 @@ defmodule Chronos.DSP do
   end
 
   defp nif_artifact_present? do
-    case :code.priv_dir(:chronos) do
-      priv_dir when is_list(priv_dir) ->
-        priv_dir
-        |> to_string()
-        |> nif_artifact_candidates()
-        |> Enum.any?(&artifact_magic?/1)
+    case Application.get_env(:chronos, :nif_artifact_path) do
+      path when is_binary(path) ->
+        artifact_magic?(path)
 
       _ ->
-        false
+        case :code.priv_dir(:chronos) do
+          priv_dir when is_list(priv_dir) ->
+            priv_dir
+            |> to_string()
+            |> nif_artifact_candidates()
+            |> Enum.any?(&artifact_magic?/1)
+
+          _ ->
+            false
+        end
     end
   end
 

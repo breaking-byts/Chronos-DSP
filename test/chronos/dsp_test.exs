@@ -75,31 +75,30 @@ defmodule Chronos.DSPTest do
   end
 
   defp with_dummy_nif_artifact(fun) do
+    previous = Application.get_env(:chronos, :nif_artifact_path)
+
     artifact_path =
-      :chronos
-      |> :code.priv_dir()
-      |> to_string()
-      |> Path.join("native/chronos_dsp.so")
+      Path.join(
+        System.tmp_dir!(),
+        "chronos_dsp_dummy_#{System.unique_integer([:positive])}.so"
+      )
 
-    File.mkdir_p!(Path.dirname(artifact_path))
-
-    existing =
-      if File.exists?(artifact_path) do
-        File.read!(artifact_path)
-      else
-        nil
-      end
-
+    # Never overwrite the real NIF: the shared object is already mapped into the
+    # VM, and truncating it can fault the next native call on Linux. Point the
+    # availability check at an invalid temporary file instead.
     File.write!(artifact_path, "not-a-real-nif")
+    Application.put_env(:chronos, :nif_artifact_path, artifact_path)
 
     try do
       fun.()
     after
-      if is_nil(existing) do
-        File.rm(artifact_path)
+      if is_nil(previous) do
+        Application.delete_env(:chronos, :nif_artifact_path)
       else
-        File.write!(artifact_path, existing)
+        Application.put_env(:chronos, :nif_artifact_path, previous)
       end
+
+      File.rm(artifact_path)
     end
   end
 end
