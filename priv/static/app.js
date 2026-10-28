@@ -9,6 +9,8 @@
     wallStroke: "rgba(203, 213, 225, 0.85)",
     los: "#22d3ee",
     reflection: "#fb923c",
+    diffraction: "#a78bfa",
+    transmission: "#f472b6",
     tx: "#22d3ee",
     rx: "#fb923c",
     text: "#cbd5e1",
@@ -196,11 +198,13 @@
         ctx.strokeStyle = COLORS.wallStroke;
         ctx.stroke();
 
-        if (vertices.length >= 2 && wall.attenuation_db) {
+        const loss = wall.loss_db ?? wall.attenuation_db;
+        if (vertices.length >= 2 && loss) {
           const [x, y] = vertices[0];
+          const material = wall.material ? `${wall.material} ` : "";
           ctx.fillStyle = COLORS.muted;
           ctx.font = "500 10px ui-monospace, SFMono-Regular, monospace";
-          ctx.fillText(`${wall.attenuation_db} dB`, x + 4, y - 6);
+          ctx.fillText(`${material}${loss} dB`, x + 4, y - 6);
         }
       });
 
@@ -217,6 +221,8 @@
         if (points.length < 2) return;
 
         const isReflection = path.kind === "reflection";
+        const isDiffraction = path.kind === "diffraction";
+        const isTransmission = path.kind === "transmission";
         ctx.beginPath();
         ctx.moveTo(points[0][0], points[0][1]);
         points.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
@@ -226,6 +232,16 @@
           ctx.strokeStyle = COLORS.reflection;
           ctx.lineWidth = 1.4;
           ctx.globalAlpha = 0.85;
+        } else if (isDiffraction) {
+          ctx.setLineDash([8, 3]);
+          ctx.strokeStyle = COLORS.diffraction;
+          ctx.lineWidth = 1.4;
+          ctx.globalAlpha = 0.85;
+        } else if (isTransmission) {
+          ctx.setLineDash([2, 3]);
+          ctx.strokeStyle = COLORS.transmission;
+          ctx.lineWidth = 1.6;
+          ctx.globalAlpha = 0.9;
         } else {
           ctx.setLineDash([]);
           ctx.strokeStyle = COLORS.los;

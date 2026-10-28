@@ -2,22 +2,41 @@ defmodule Chronos.Channel do
   @moduledoc """
   Deterministic geometric channel model.
 
-  Each transmitter/receiver pair gets a line-of-sight path when the segment is
-  not blocked, plus reflection paths off planar wall polygons. The model is
-  intentionally simple: free-space amplitude decays with `1 / distance`, wall
-  hits apply their material attenuation, and Doppler is derived from the
-  relative velocity projected onto the path.
+  Each transmitter/receiver pair gets the paths that the scene geometry
+  supports:
 
-  The path models that extend the channel (higher-order reflections,
-  diffraction, and wall transmission) live in dedicated modules under
-  `Chronos.Channel` and share the conventions in `Chronos.Channel.Physics`.
+    * a line-of-sight path when the segment is not blocked;
+    * reflection paths off wall polygons, of first order and higher, found with
+      the image-source method (`Chronos.Channel.MultiBounce`);
+    * a diffracted path around the edge of a blocking wall
+      (`Chronos.Channel.Diffraction`);
+    * a transmission path through a blocking wall
+      (`Chronos.Channel.Transmission`).
+
+  The models are intentionally simple: free-space amplitude decays with
+  `1 / distance`, wall hits apply their material attenuation, and Doppler is
+  derived from the relative velocity projected onto the path. They share the
+  conventions in `Chronos.Channel.Physics`, so every path answers the same
+  questions the same way.
+
+  ## Options
+
+    * `:max_bounces` - highest reflection order to compute (default `2`)
+    * `:max_paths` - hard cap on the paths returned per receiver (default `32`)
+    * `:diffraction` - set to `false` to skip diffracted paths (default `true`)
+    * `:transmission` - set to `false` to skip penetrating paths (default `true`)
   """
 
+  alias Chronos.Channel.Diffraction
+  alias Chronos.Channel.MultiBounce
   alias Chronos.Channel.Path
   alias Chronos.Channel.Physics
+  alias Chronos.Channel.Transmission
   alias Chronos.Geometry
-  alias Chronos.Material
   alias Chronos.World
+
+  @default_max_bounces 2
+  @default_max_paths 32
 
   @doc """
   Returns every path from all transmitters to `rx_id`.
@@ -42,11 +61,18 @@ defmodule Chronos.Channel do
         paths =
           Enum.flat_map(txs, fn tx ->
             los = los_path(tx, rx, walls, opts)
-            reflections = reflection_paths(tx, rx, walls, opts)
-            Enum.reject([los | reflections], &is_nil/1)
+            reflections = MultiBounce.paths(tx, rx, walls, bounce_opts(opts))
+            diffraction = Diffraction.paths(tx, rx, walls, opts)
+            transmission = Transmission.paths(tx, rx, walls, opts)
+
+            [
+              los
+              | sort_by_strength(reflections ++ diffraction ++ transmission)
+            ]
+            |> Enum.reject(&is_nil/1)
           end)
 
-        {:ok, paths}
+        {:ok, Enum.take(paths, max_paths(opts))}
 
       %World.Node{} ->
         {:error, :unknown_rx}
@@ -102,55 +128,13 @@ defmodule Chronos.Channel do
 
   The transmitter is mirrored across the wall plane. If the mirrored segment
   crosses the wall polygon and neither leg is occluded by another wall, the hit
-  point defines a valid reflection path.
+  point defines a valid reflection path. Higher-order reflections are built by
+  `Chronos.Channel.MultiBounce`.
   """
   @spec reflection_paths(World.Node.t(), World.Node.t(), list(World.Wall.t()), keyword()) ::
           list(Path.t())
-  def reflection_paths(
-        %World.Node{pos: tx_pos, vel: tx_vel},
-        %World.Node{pos: rx_pos, vel: rx_vel},
-        walls,
-        opts
-      ) do
-    Enum.flat_map(walls, fn
-      %World.Wall{
-        id: wall_id,
-        vertices: [plane_point | _] = vertices,
-        normal: normal
-      } = wall ->
-        with {:ok, tx_reflected} <-
-               Geometry.reflect_point_across_plane(tx_pos, plane_point, normal),
-             {:ok, hit, _t} <-
-               Geometry.segment_plane_intersect(tx_reflected, rx_pos, plane_point, normal),
-             true <- Geometry.point_in_polygon(hit, vertices, normal),
-             false <- segment_occluded?(tx_pos, hit, walls, wall_id),
-             false <- segment_occluded?(hit, rx_pos, walls, wall_id) do
-          distance = Geometry.distance(tx_pos, hit) + Geometry.distance(hit, rx_pos)
-          delay_s = distance / Physics.speed_of_light(opts)
-          loss_db = Material.reflection_loss_db(wall)
-          gain = Physics.path_gain(distance, loss_db, opts)
-
-          doppler_hz =
-            Physics.doppler_hz([tx_pos, hit, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
-
-          [
-            %Path{
-              delay_s: delay_s,
-              gain: gain,
-              doppler_hz: doppler_hz,
-              kind: :reflection,
-              bounces: 1,
-              points: [tx_pos, hit, rx_pos],
-              interactions: [{:reflection, wall_id}]
-            }
-          ]
-        else
-          _ -> []
-        end
-
-      _ ->
-        []
-    end)
+  def reflection_paths(tx, rx, walls, opts) do
+    MultiBounce.paths(tx, rx, walls, Keyword.put(opts, :max_bounces, 1))
   end
 
   @doc """
@@ -190,4 +174,17 @@ defmodule Chronos.Channel do
   @doc "Converts a decibel ratio to linear amplitude."
   @spec db_to_linear(float()) :: float()
   defdelegate db_to_linear(db), to: Physics
+
+  defp max_paths(opts), do: Keyword.get(opts, :max_paths, @default_max_paths)
+
+  defp bounce_opts(opts), do: Keyword.put_new(opts, :max_bounces, @default_max_bounces)
+
+  # Strongest paths first, ties broken by construction order, so the path cap
+  # keeps the paths that contribute the most energy.
+  defp sort_by_strength(paths) do
+    paths
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {path, index} -> {-path.gain, index} end)
+    |> Enum.map(fn {path, _index} -> path end)
+  end
 end

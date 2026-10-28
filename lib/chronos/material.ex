@@ -1,14 +1,20 @@
 defmodule Chronos.Material do
   @moduledoc """
-  Small, illustrative material catalogue for the geometric channel.
+  Illustrative material catalogue for the geometric channel.
 
-  Coefficients are amplitude losses in decibels, not calibrated link-budget
-  values. They are intentionally simple and deterministic so the demo can show
-  how material choice changes reflection, transmission, and diffraction without
-  pretending to be a measurement-grade material database.
+  Each coefficient is a loss magnitude in decibels. A positive value means
+  attenuation and is applied as a linear amplitude factor of
+  `10 ** (-loss_db / 20)`, consistent with
+  `Chronos.Channel.Physics.db_to_linear/1`.
 
-  A wall may override the catalogue's reflection loss with `attenuation_db`;
-  transmission and diffraction losses always come from the wall's material.
+  The values below are intentionally simple and illustrative; they are not
+  calibrated measurements. They let the simulator demonstrate how material
+  choice changes reflection, transmission, and diffraction without presenting
+  the catalogue as a measurement-grade database.
+
+  A wall's material supplies all three losses. An explicit numeric
+  `wall.attenuation_db` overrides only the reflection loss; transmission and
+  diffraction always come from the material.
   """
 
   @default_id :concrete
@@ -21,6 +27,8 @@ defmodule Chronos.Material do
     :transmission_loss_db,
     :diffraction_loss_db
   ]
+
+  @type id :: atom() | String.t()
 
   @type t :: %__MODULE__{
           id: atom(),
@@ -37,6 +45,11 @@ defmodule Chronos.Material do
     {:drywall, "Drywall", 2.0, 4.0, 2.0},
     {:glass, "Glass", 1.0, 3.0, 1.0},
     {:metal, "Metal", 0.5, 40.0, 2.0},
+    {:plaster, "Plaster", 3.0, 8.0, 3.0},
+    {:plywood, "Plywood", 3.5, 7.0, 3.5},
+    {:reinforced_concrete, "Reinforced Concrete", 8.0, 24.0, 8.0},
+    {:soil, "Soil", 5.0, 12.0, 5.0},
+    {:water, "Water", 2.0, 20.0, 2.0},
     {:wood, "Wood", 3.0, 6.0, 3.0}
   ]
 
@@ -45,46 +58,56 @@ defmodule Chronos.Material do
   def list do
     @catalogue
     |> Enum.map(&to_struct/1)
-    |> Enum.sort_by(& &1.id)
+    |> Enum.sort_by(&Atom.to_string(&1.id))
   end
+
+  @doc "Returns all material ids, sorted by id."
+  @spec ids() :: [id()]
+  def ids, do: Enum.map(list(), & &1.id)
 
   @doc "Returns a material by atom or string id; unknown ids fall back to concrete."
-  @spec get(atom() | String.t() | nil) :: t()
-  def get(id) when is_atom(id), do: Enum.find(list(), &(&1.id == id)) || default()
+  @spec get(id() | nil) :: t()
+  def get(id), do: fetch(id) || default()
 
-  def get(id) when is_binary(id) do
-    Enum.find(list(), &(Atom.to_string(&1.id) == id)) || default()
+  @doc """
+  Returns a material by atom or string id.
+
+  Raises `ArgumentError` when the id is not present in the catalogue.
+  """
+  @spec get!(id()) :: t()
+  def get!(id) do
+    case fetch(id) do
+      nil -> raise ArgumentError, "unknown material id: #{inspect(id)}"
+      material -> material
+    end
   end
-
-  def get(_id), do: default()
 
   @doc "Returns the default material (concrete)."
   @spec default() :: t()
-  def default do
-    id = @default_id
+  def default, do: get!(@default_id)
 
-    {id, name, reflection, transmission, diffraction} =
-      Enum.find(@catalogue, fn entry -> elem(entry, 0) == id end) ||
-        {id, "Concrete", 6.0, 18.0, 6.0}
+  @doc """
+  Returns the material for a wall.
 
-    to_struct({id, name, reflection, transmission, diffraction})
-  end
+  A known `material` id is used directly. Missing or unknown ids fall back to
+  the default material and never raise.
+  """
+  @spec for_wall(map()) :: t()
+  def for_wall(%{material: id}), do: fetch(id) || default()
+  def for_wall(_wall), do: default()
 
   @doc "Returns the reflection loss for a wall, preferring an explicit `attenuation_db`."
   @spec reflection_loss_db(map()) :: float()
   def reflection_loss_db(%{attenuation_db: db}) when is_number(db), do: db
-  def reflection_loss_db(%{material: material}), do: get(material).reflection_loss_db
-  def reflection_loss_db(_wall), do: default().reflection_loss_db
+  def reflection_loss_db(wall), do: for_wall(wall).reflection_loss_db
 
   @doc "Returns the transmission loss for a wall's material."
   @spec transmission_loss_db(map()) :: float()
-  def transmission_loss_db(%{material: material}), do: get(material).transmission_loss_db
-  def transmission_loss_db(_wall), do: default().transmission_loss_db
+  def transmission_loss_db(wall), do: for_wall(wall).transmission_loss_db
 
   @doc "Returns the diffraction loss for a wall's material."
   @spec diffraction_loss_db(map()) :: float()
-  def diffraction_loss_db(%{material: material}), do: get(material).diffraction_loss_db
-  def diffraction_loss_db(_wall), do: default().diffraction_loss_db
+  def diffraction_loss_db(wall), do: for_wall(wall).diffraction_loss_db
 
   @doc "Returns a JSON-friendly material map."
   @spec to_map(t()) :: map()
@@ -97,6 +120,23 @@ defmodule Chronos.Material do
       diffraction_loss_db: material.diffraction_loss_db
     }
   end
+
+  defp fetch(id) when is_atom(id) do
+    @catalogue
+    |> Enum.find(&(elem(&1, 0) == id))
+    |> material_struct()
+  end
+
+  defp fetch(id) when is_binary(id) do
+    @catalogue
+    |> Enum.find(&(Atom.to_string(elem(&1, 0)) == id))
+    |> material_struct()
+  end
+
+  defp fetch(_id), do: nil
+
+  defp material_struct(nil), do: nil
+  defp material_struct(entry), do: to_struct(entry)
 
   defp to_struct({id, name, reflection, transmission, diffraction}) do
     %__MODULE__{

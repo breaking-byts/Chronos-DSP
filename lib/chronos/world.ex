@@ -3,19 +3,37 @@ defmodule Chronos.World do
   Mutable-by-replacement world state for the propagation simulator.
 
   Nodes are transmitters (`:tx`) or receivers (`:rx`) with a 3D position and
-  velocity. Walls are planar polygons with an attenuation in decibels.
+  velocity. Walls are planar polygons associated with a material. An optional
+  explicit reflection attenuation can override that material's reflection loss.
   """
 
   defmodule Node do
     @moduledoc "A transmitter or receiver in the world."
+
+    @type t :: %__MODULE__{
+            id: term(),
+            type: :tx | :rx,
+            pos: {float(), float(), float()},
+            vel: {float(), float(), float()}
+          }
+
     @enforce_keys [:id, :type, :pos, :vel]
     defstruct [:id, :type, :pos, :vel]
   end
 
   defmodule Wall do
-    @moduledoc "A planar polygon that reflects and occludes signals."
-    @enforce_keys [:id, :vertices, :normal, :attenuation_db]
-    defstruct [:id, :vertices, :normal, :attenuation_db]
+    @moduledoc "A planar polygon with a material that reflects and occludes signals."
+
+    @type t :: %__MODULE__{
+            id: term(),
+            vertices: list({float(), float(), float()}),
+            normal: {float(), float(), float()},
+            material: atom(),
+            attenuation_db: number() | nil
+          }
+
+    @enforce_keys [:id, :vertices, :normal]
+    defstruct [:id, :vertices, :normal, material: :concrete, attenuation_db: nil]
   end
 
   @type vec3 :: {float(), float(), float()}

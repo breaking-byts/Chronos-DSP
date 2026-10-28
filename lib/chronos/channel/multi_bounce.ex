@@ -1,0 +1,308 @@
+defmodule Chronos.Channel.MultiBounce do
+  @moduledoc """
+  Higher-order reflection paths via the image-source method.
+
+  Enumerates ordered sequences of distinct walls up to `max_bounces`, mirrors
+  the transmitter across each wall in turn, and validates the resulting path
+  by intersecting back from the receiver. All validation mirrors the
+  first-order model in `Chronos.Channel` so results are numerically identical
+  for single-bounce paths.
+  """
+
+  alias Chronos.Channel.Path
+  alias Chronos.Channel.Physics
+  alias Chronos.Geometry
+  alias Chronos.Material
+  alias Chronos.World
+
+  @type vec3 :: Geometry.vec3()
+  @type wall :: World.Wall.t()
+  @type opts :: keyword()
+
+  @doc """
+  Returns all reflection paths up to `max_bounces` order, capped at `max_paths`.
+
+  The transmitter is mirrored across an ordered sequence of distinct walls
+  [w1, w2, ..., wk]. The receiver segment intersects the last wall, then the
+  path is back-tracked to find every bounce point. Every point must lie inside
+  its wall polygon, and every leg must be free of occlusions from walls other
+  than the ones it leaves and enters.
+
+  ## Options
+
+    * `:max_bounces` - highest reflection order to compute (default 2, minimum 1)
+    * `:max_paths`   - hard cap on returned paths (default 64)
+
+  Paths are ordered by bounce count (all first-order, then second-order, etc.),
+  and within each order by the sorted wall ids of the sequence. This order is
+  deterministic and stable.
+  """
+  @spec paths(World.Node.t(), World.Node.t(), list(wall()), opts()) :: [Path.t()]
+  def paths(tx, rx, walls, opts \\ []) do
+    max_bounces = Keyword.get(opts, :max_bounces, 2) |> max(1)
+    max_paths = Keyword.get(opts, :max_paths, 64) |> max(1)
+
+    # Sort walls by id for deterministic enumeration
+    sorted_walls = Enum.sort_by(walls, &to_string(&1.id))
+
+    # Generate all ordered sequences of distinct walls up to max_bounces
+    sequences = generate_sequences(sorted_walls, max_bounces)
+
+    # Build paths for each sequence, stop when cap reached
+    sequences
+    |> Enum.reduce_while([], fn seq, acc ->
+      if length(acc) >= max_paths do
+        {:halt, acc}
+      else
+        case build_path_for_sequence(tx, rx, seq, sorted_walls, opts) do
+          {:ok, path} -> {:cont, [path | acc]}
+          {:error, _reason} -> {:cont, acc}
+        end
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  # -------------------------------------------------------------------------
+  # Sequence generation
+  # -------------------------------------------------------------------------
+
+  @doc false
+  @spec generate_sequences(list(wall()), pos_integer()) :: [list(wall())]
+  defp generate_sequences(walls, max_bounces) do
+    1..max_bounces
+    |> Enum.flat_map(fn k ->
+      ordered_combinations(walls, k)
+    end)
+  end
+
+  @doc false
+  @spec ordered_combinations(list(wall()), non_neg_integer()) :: [list(wall())]
+  defp ordered_combinations(_walls, 0), do: [[]]
+
+  defp ordered_combinations(walls, k) do
+    Enum.flat_map(walls, fn wall ->
+      remaining = Enum.reject(walls, &(&1.id == wall.id))
+      for tail <- ordered_combinations(remaining, k - 1), do: [wall | tail]
+    end)
+  end
+
+  # -------------------------------------------------------------------------
+  # Path construction for a single wall sequence
+  # -------------------------------------------------------------------------
+
+  @doc false
+  @spec build_path_for_sequence(
+          World.Node.t(),
+          World.Node.t(),
+          list(wall()),
+          list(wall()),
+          opts()
+        ) :: {:ok, Path.t()} | {:error, term()}
+  defp build_path_for_sequence(tx, rx, sequence, scene_walls, opts) do
+    with {:ok, images} <- compute_images(tx.pos, sequence),
+         {:ok, points} <- find_bounce_points(images, rx.pos, sequence),
+         {:ok, true} <- validate_points_in_polygons(points, sequence),
+         {:ok, true} <-
+           validate_legs_unoccluded(tx.pos, rx.pos, points, sequence, scene_walls) do
+      build_path(tx, rx, sequence, points, opts)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Compute successive mirror images of the transmitter across each wall
+  @spec compute_images(vec3(), list(wall())) ::
+          {:ok, [vec3()]} | {:error, :degenerate_normal}
+  defp compute_images(tx_pos, walls) do
+    walls
+    |> Enum.reduce_while({:ok, [tx_pos]}, fn
+      wall, {:ok, [last_image | _] = acc} ->
+        case Geometry.reflect_point_across_plane(last_image, hd(wall.vertices), wall.normal) do
+          {:ok, image} -> {:cont, {:ok, [image | acc]}}
+          {:error, :zero_vector} -> {:halt, {:error, :degenerate_normal}}
+        end
+
+      _, {:error, _} = err ->
+        {:halt, err}
+    end)
+    |> case do
+      {:ok, list} -> {:ok, Enum.reverse(list)}
+      err -> err
+    end
+  end
+
+  # Find bounce points by intersecting from receiver back through the wall planes
+  @spec find_bounce_points([vec3()], vec3(), list(wall())) ::
+          {:ok, [vec3()]} | {:error, :no_intersection} | {:error, :parallel}
+  defp find_bounce_points(images, rx_pos, walls) do
+    # images = [image_0, image_1, ..., image_k] where image_0 = tx_pos
+    # walls = [w1, w2, ..., wk]
+    # We need points p_k, p_{k-1}, ..., p_1
+
+    k = length(walls)
+
+    # Start with the segment (image_k, rx_pos) intersecting wall k
+    image_k = Enum.at(images, k)
+    wall_k = Enum.at(walls, k - 1)
+    plane_point_k = hd(wall_k.vertices)
+
+    case Geometry.segment_plane_intersect(image_k, rx_pos, plane_point_k, wall_k.normal) do
+      {:ok, p_k, _t} ->
+        # Back-track for remaining walls. `find_remaining_points/4` returns the
+        # bounce points already ordered from the first bounce to the last.
+        find_remaining_points(images, [p_k], walls, k - 1)
+
+      {:error, :zero_vector} ->
+        {:error, :degenerate_normal}
+
+      _ ->
+        {:error, :no_intersection}
+    end
+  end
+
+  @spec find_remaining_points([vec3()], [vec3()], list(wall()), non_neg_integer()) ::
+          {:ok, [vec3()]} | {:error, :no_intersection} | {:error, :parallel}
+  defp find_remaining_points(_images, points, _walls, 0), do: {:ok, points}
+
+  defp find_remaining_points(images, [p_i | _] = points, walls, i) do
+    image_prev = Enum.at(images, i)
+    wall_prev = Enum.at(walls, i - 1)
+    plane_point = hd(wall_prev.vertices)
+
+    case Geometry.segment_plane_intersect(image_prev, p_i, plane_point, wall_prev.normal) do
+      {:ok, p_prev, _t} ->
+        find_remaining_points(images, [p_prev | points], walls, i - 1)
+
+      {:error, :zero_vector} ->
+        {:error, :degenerate_normal}
+
+      _ ->
+        {:error, :no_intersection}
+    end
+  end
+
+  # Validate every bounce point lies inside its wall polygon
+  @spec validate_points_in_polygons([vec3()], list(wall())) ::
+          {:ok, true} | {:error, :point_outside_polygon}
+  defp validate_points_in_polygons(points, walls) do
+    Enum.zip(points, walls)
+    |> Enum.all?(fn {point, wall} ->
+      Geometry.point_in_polygon(point, wall.vertices, wall.normal)
+    end)
+    |> case do
+      true -> {:ok, true}
+      false -> {:error, :point_outside_polygon}
+    end
+  end
+
+  # Validate every leg is not occluded by walls other than the ones it touches
+  @spec validate_legs_unoccluded(vec3(), vec3(), [vec3()], list(wall()), list(wall())) ::
+          {:ok, true} | {:error, :leg_occluded}
+  defp validate_legs_unoccluded(tx_pos, rx_pos, bounce_points, sequence, scene_walls) do
+    legs = build_legs(tx_pos, rx_pos, bounce_points)
+    wall_count = length(sequence)
+
+    result =
+      Enum.with_index(legs)
+      |> Enum.all?(fn {{a, b}, leg_idx} ->
+        ignore_ids = leg_wall_ids(leg_idx, wall_count, sequence)
+        not segment_occluded_by_any?(a, b, scene_walls, ignore_ids)
+      end)
+
+    case result do
+      true -> {:ok, true}
+      false -> {:error, :leg_occluded}
+    end
+  end
+
+  @spec build_legs(vec3(), vec3(), [vec3()]) :: [{vec3(), vec3()}]
+  defp build_legs(tx_pos, rx_pos, bounce_points) do
+    points = [tx_pos | bounce_points] ++ [rx_pos]
+    Enum.zip(points, tl(points))
+  end
+
+  @spec leg_wall_ids(non_neg_integer(), non_neg_integer(), list(wall())) :: [term()]
+  defp leg_wall_ids(leg_idx, wall_count, walls) do
+    cond do
+      leg_idx == 0 ->
+        # First leg: tx -> p1, touches wall 1 (entering)
+        [Enum.at(walls, 0).id]
+
+      leg_idx == wall_count ->
+        # Last leg: pk -> rx, touches wall k (leaving)
+        [Enum.at(walls, wall_count - 1).id]
+
+      leg_idx > 0 and leg_idx < wall_count ->
+        # Middle leg: pi -> p_{i+1}, touches wall i (leaving) and wall i+1 (entering)
+        [Enum.at(walls, leg_idx - 1).id, Enum.at(walls, leg_idx).id]
+
+      true ->
+        []
+    end
+  end
+
+  # Check if segment is occluded by any wall NOT in ignore_ids
+  @spec segment_occluded_by_any?(vec3(), vec3(), list(wall()), [term()]) :: boolean()
+  defp segment_occluded_by_any?(a, b, walls, ignore_ids) do
+    Enum.any?(walls, fn
+      %World.Wall{id: id, vertices: [_ | _] = vertices, normal: normal} ->
+        id not in ignore_ids and Geometry.segment_intersects_polygon?(a, b, vertices, normal)
+
+      _ ->
+        false
+    end)
+  end
+
+  # Build the final Path struct
+  @spec build_path(World.Node.t(), World.Node.t(), list(wall()), [vec3()], opts()) ::
+          {:ok, Path.t()}
+  defp build_path(tx, rx, walls, bounce_points, opts) do
+    points = [tx.pos | bounce_points] ++ [rx.pos]
+    total_length = Physics.path_length(points)
+
+    # Guard against zero-length paths
+    if total_length <= 0.0 or not is_finite(total_length) do
+      {:error, :zero_length}
+    else
+      delay_s = total_length / Physics.speed_of_light(opts)
+
+      loss_db =
+        Enum.reduce(walls, 0.0, fn wall, acc ->
+          acc + Material.reflection_loss_db(wall)
+        end)
+
+      gain = Physics.path_gain(total_length, loss_db, opts)
+
+      # Guard against non-finite gain
+      if not is_finite(gain) do
+        {:error, :non_finite_gain}
+      else
+        doppler_hz = Physics.doppler_hz(points, tx.vel, rx.vel, Physics.wavelength(opts))
+
+        interactions =
+          Enum.map(walls, fn wall -> {:reflection, wall.id} end)
+
+        path = %Path{
+          delay_s: delay_s,
+          gain: gain,
+          doppler_hz: doppler_hz,
+          kind: :reflection,
+          bounces: length(walls),
+          points: points,
+          interactions: interactions
+        }
+
+        {:ok, path}
+      end
+    end
+  end
+
+  defp is_finite(x) when is_float(x) do
+    # NaN check: NaN != NaN
+    # Infinity check: magnitude exceeds largest finite float (~1.8e308)
+    x == x and abs(x) < 1.0e300
+  end
+
+  defp is_finite(_), do: true
+end

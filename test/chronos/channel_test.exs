@@ -106,4 +106,95 @@ defmodule Chronos.ChannelTest do
   test "db_to_linear converts 20 dB to 10x" do
     assert_in_delta Channel.db_to_linear(20.0), 10.0, 1.0e-6
   end
+
+  # -------------------------------------------------------------------------
+  # Path model integration
+  # -------------------------------------------------------------------------
+
+  test "paths_for_rx combines line of sight, reflections, diffraction and transmission" do
+    world = corner_world()
+
+    {:ok, paths} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0)
+    kinds = paths |> Enum.map(& &1.kind) |> Enum.uniq()
+
+    assert :los in kinds
+    assert :reflection in kinds
+
+    # Every path is finite and has a positive delay.
+    for path <- paths do
+      assert path.delay_s > 0.0
+      assert path.gain > 0.0
+      assert is_finite(path.gain)
+      assert is_finite(path.doppler_hz)
+      assert length(path.points) >= 2
+    end
+  end
+
+  test "max_bounces limits the reflection order" do
+    world = corner_world()
+
+    {:ok, paths} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0, max_bounces: 1)
+    assert Enum.all?(paths, &(&1.kind != :reflection or &1.bounces == 1))
+
+    {:ok, paths} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0, max_bounces: 2)
+    assert Enum.any?(paths, &(&1.kind == :reflection and &1.bounces == 2))
+  end
+
+  test "max_paths caps the number of returned paths" do
+    world = corner_world()
+
+    {:ok, paths} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0, max_paths: 1)
+    assert length(paths) == 1
+  end
+
+  test "diffraction and transmission can be switched off" do
+    world = corner_world()
+
+    {:ok, paths} =
+      Channel.paths_for_rx(world, :rx1,
+        speed_of_light: 1.0,
+        diffraction: false,
+        transmission: false
+      )
+
+    assert Enum.all?(paths, &(&1.kind in [:los, :reflection]))
+  end
+
+  test "paths are deterministic for the same world" do
+    world = corner_world()
+
+    {:ok, first} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0)
+    {:ok, second} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0)
+
+    assert first == second
+  end
+
+  defp corner_world do
+    wall_x = %World.Wall{
+      id: :wall_x,
+      vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
+      normal: {1.0, 0.0, 0.0},
+      attenuation_db: 3.0
+    }
+
+    wall_y = %World.Wall{
+      id: :wall_y,
+      vertices: [{-2.0, 0.0, -2.0}, {2.0, 0.0, -2.0}, {2.0, 0.0, 2.0}, {-2.0, 0.0, 2.0}],
+      normal: {0.0, 1.0, 0.0},
+      attenuation_db: 6.0
+    }
+
+    tx = %World.Node{id: :tx1, type: :tx, pos: {1.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx1, type: :rx, pos: {2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+
+    World.new()
+    |> World.add_node(tx)
+    |> World.add_node(rx)
+    |> World.add_wall(wall_x)
+    |> World.add_wall(wall_y)
+  end
+
+  defp is_finite(number) when is_number(number) do
+    number == number and abs(number) < 1.0e308
+  end
 end
