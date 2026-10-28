@@ -3,22 +3,21 @@ defmodule Chronos.Channel do
   Deterministic geometric channel model.
 
   Each transmitter/receiver pair gets a line-of-sight path when the segment is
-  not blocked, plus one first-order reflection path per visible wall. The model
-  is intentionally simple: free-space amplitude decays with `1 / distance`, wall
-  hits apply their attenuation, and Doppler is derived from the relative
-  velocity projected onto the path.
+  not blocked, plus reflection paths off planar wall polygons. The model is
+  intentionally simple: free-space amplitude decays with `1 / distance`, wall
+  hits apply their material attenuation, and Doppler is derived from the
+  relative velocity projected onto the path.
+
+  The path models that extend the channel (higher-order reflections,
+  diffraction, and wall transmission) live in dedicated modules under
+  `Chronos.Channel` and share the conventions in `Chronos.Channel.Physics`.
   """
 
+  alias Chronos.Channel.Path
+  alias Chronos.Channel.Physics
   alias Chronos.Geometry
+  alias Chronos.Material
   alias Chronos.World
-
-  defmodule Path do
-    @moduledoc "A single propagation path between a transmitter and receiver."
-    @enforce_keys [:delay_s, :gain, :doppler_hz]
-    defstruct [:delay_s, :gain, :doppler_hz]
-
-    @type t :: %__MODULE__{delay_s: float(), gain: float(), doppler_hz: float()}
-  end
 
   @doc """
   Returns every path from all transmitters to `rx_id`.
@@ -82,10 +81,19 @@ defmodule Chronos.Channel do
       nil
     else
       distance = Geometry.distance(tx_pos, rx_pos)
-      delay_s = distance / speed_of_light(opts)
-      gain = free_space_gain(distance) * opts_attenuation(opts)
-      doppler_hz = doppler(tx_pos, tx_vel, rx_pos, rx_vel, opts)
-      %Path{delay_s: delay_s, gain: gain, doppler_hz: doppler_hz}
+      delay_s = distance / Physics.speed_of_light(opts)
+      gain = Physics.path_gain(distance, 0.0, opts)
+      doppler_hz = Physics.doppler_hz([tx_pos, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
+
+      %Path{
+        delay_s: delay_s,
+        gain: gain,
+        doppler_hz: doppler_hz,
+        kind: :los,
+        bounces: 0,
+        points: [tx_pos, rx_pos],
+        interactions: []
+      }
     end
   end
 
@@ -108,9 +116,8 @@ defmodule Chronos.Channel do
       %World.Wall{
         id: wall_id,
         vertices: [plane_point | _] = vertices,
-        normal: normal,
-        attenuation_db: att
-      } ->
+        normal: normal
+      } = wall ->
         with {:ok, tx_reflected} <-
                Geometry.reflect_point_across_plane(tx_pos, plane_point, normal),
              {:ok, hit, _t} <-
@@ -119,10 +126,24 @@ defmodule Chronos.Channel do
              false <- segment_occluded?(tx_pos, hit, walls, wall_id),
              false <- segment_occluded?(hit, rx_pos, walls, wall_id) do
           distance = Geometry.distance(tx_pos, hit) + Geometry.distance(hit, rx_pos)
-          delay_s = distance / speed_of_light(opts)
-          gain = free_space_gain(distance) * db_to_linear(-att) * opts_attenuation(opts)
-          doppler_hz = reflection_doppler(tx_pos, tx_vel, rx_pos, rx_vel, hit, opts)
-          [%Path{delay_s: delay_s, gain: gain, doppler_hz: doppler_hz}]
+          delay_s = distance / Physics.speed_of_light(opts)
+          loss_db = Material.reflection_loss_db(wall)
+          gain = Physics.path_gain(distance, loss_db, opts)
+
+          doppler_hz =
+            Physics.doppler_hz([tx_pos, hit, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
+
+          [
+            %Path{
+              delay_s: delay_s,
+              gain: gain,
+              doppler_hz: doppler_hz,
+              kind: :reflection,
+              bounces: 1,
+              points: [tx_pos, hit, rx_pos],
+              interactions: [{:reflection, wall_id}]
+            }
+          ]
         else
           _ -> []
         end
@@ -159,39 +180,14 @@ defmodule Chronos.Channel do
   @spec doppler(Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), keyword()) ::
           float()
   def doppler(tx_pos, tx_vel, rx_pos, rx_vel, opts) do
-    dir = Geometry.sub(rx_pos, tx_pos)
-
-    case Geometry.normalize(dir) do
-      {:ok, unit} ->
-        rel = Geometry.sub(rx_vel, tx_vel)
-        Geometry.dot(rel, unit) / wavelength(opts)
-
-      _ ->
-        0.0
-    end
+    Physics.doppler_hz([tx_pos, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
   end
 
   @doc "Free-space amplitude, normalized so a one-metre path has unit gain."
   @spec free_space_gain(float()) :: float()
-  def free_space_gain(distance) when distance > 0.0, do: 1.0 / distance
-  def free_space_gain(_distance), do: 1.0
+  defdelegate free_space_gain(distance), to: Physics
 
   @doc "Converts a decibel ratio to linear amplitude."
   @spec db_to_linear(float()) :: float()
-  def db_to_linear(db), do: :math.pow(10.0, db / 20.0)
-
-  defp reflection_doppler(tx_pos, tx_vel, rx_pos, rx_vel, hit, opts) do
-    with {:ok, outgoing} <- Geometry.normalize(Geometry.sub(hit, tx_pos)),
-         {:ok, incoming} <- Geometry.normalize(Geometry.sub(rx_pos, hit)) do
-      rate = Geometry.dot(rx_vel, incoming) - Geometry.dot(tx_vel, outgoing)
-      rate / wavelength(opts)
-    else
-      _ -> 0.0
-    end
-  end
-
-  defp speed_of_light(opts), do: Keyword.get(opts, :speed_of_light, 299_792_458.0)
-  defp carrier_freq(opts), do: Keyword.get(opts, :carrier_freq_hz, 2.4e9)
-  defp wavelength(opts), do: speed_of_light(opts) / carrier_freq(opts)
-  defp opts_attenuation(opts), do: Keyword.get(opts, :global_gain, 1.0)
+  defdelegate db_to_linear(db), to: Physics
 end

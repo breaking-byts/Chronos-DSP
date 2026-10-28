@@ -85,6 +85,48 @@ defmodule Chronos.Geometry do
     point_in_polygon_2d(proj_point, proj_vertices)
   end
 
+  @doc """
+  Returns the edges of a polygon as `{from, to}` vertex pairs.
+
+  The last edge closes the polygon back to its first vertex.
+  """
+  @spec polygon_edges(list(vec3())) :: [{vec3(), vec3()}]
+  def polygon_edges([]), do: []
+
+  def polygon_edges(vertices) do
+    count = length(vertices)
+
+    vertices
+    |> Enum.with_index()
+    |> Enum.map(fn {vertex, index} ->
+      {vertex, Enum.at(vertices, rem(index + 1, count))}
+    end)
+  end
+
+  @doc """
+  Returns the point on the segment `{a, b}` closest to `point`.
+
+  Degenerate (zero-length) segments collapse to their single endpoint.
+  """
+  @spec closest_point_on_segment(vec3(), {vec3(), vec3()}) :: vec3()
+  def closest_point_on_segment(point, {a, b}) do
+    ab = sub(b, a)
+    length_squared = dot(ab, ab)
+
+    if length_squared == 0.0 do
+      a
+    else
+      t = dot(sub(point, a), ab) / length_squared
+      add(a, scale(ab, clamp(t, 0.0, 1.0)))
+    end
+  end
+
+  @doc "Returns the distance from `point` to the segment `{a, b}`."
+  @spec point_segment_distance(vec3(), {vec3(), vec3()}) :: float()
+  def point_segment_distance(point, segment) do
+    distance(point, closest_point_on_segment(point, segment))
+  end
+
   @spec segment_intersects_polygon?(vec3(), vec3(), list(vec3()), vec3()) :: boolean()
   def segment_intersects_polygon?(_a, _b, vertices, _plane_normal) when length(vertices) < 3,
     do: false
@@ -97,6 +139,8 @@ defmodule Chronos.Geometry do
       _ -> false
     end
   end
+
+  defp clamp(value, min, max), do: value |> max(min) |> min(max)
 
   defp project_to_2d(point, vertices, {nx, ny, nz}) do
     {ax, ay, az} = {abs(nx), abs(ny), abs(nz)}
