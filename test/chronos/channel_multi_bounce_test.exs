@@ -141,6 +141,37 @@ defmodule Chronos.Channel.MultiBounceTest do
   # max_bounces option
   # -------------------------------------------------------------------------
 
+  test "corner reflector produces a second-order path counted once" do
+    # Two walls meeting at a corner (5, 5): a ray that hits the corner is
+    # reflected by both walls and reaches the receiver.
+    wall_a = %World.Wall{
+      id: :wa,
+      vertices: [{5.0, -5.0, 0.0}, {5.0, 5.0, 0.0}, {5.0, 5.0, 3.0}, {5.0, -5.0, 3.0}],
+      normal: {-1.0, 0.0, 0.0},
+      attenuation_db: 0.0
+    }
+
+    wall_b = %World.Wall{
+      id: :wb,
+      vertices: [{-5.0, 5.0, 0.0}, {5.0, 5.0, 0.0}, {5.0, 5.0, 3.0}, {-5.0, 5.0, 3.0}],
+      normal: {0.0, -1.0, 0.0},
+      attenuation_db: 0.0
+    }
+
+    tx = %World.Node{id: :tx, type: :tx, pos: {2.0, 2.0, 1.5}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx, type: :rx, pos: {3.0, 3.0, 1.5}, vel: {0.0, 0.0, 0.0}}
+
+    paths = MultiBounce.paths(tx, rx, [wall_a, wall_b], max_bounces: 2, speed_of_light: 1.0)
+    second_order = Enum.filter(paths, &(&1.bounces == 2))
+
+    # The corner path exists ...
+    assert length(second_order) == 1
+
+    # ... and it bounces on the corner itself.
+    assert [_tx_pos, corner, _corner, _rx_pos] = hd(second_order).points
+    assert corner == {5.0, 5.0, 1.5}
+  end
+
   test "max_bounces: 1 yields only first-order paths" do
     wall1 = %World.Wall{
       id: :w1,
@@ -309,8 +340,8 @@ defmodule Chronos.Channel.MultiBounceTest do
       attenuation_db: 0.0
     }
 
-    tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, -1.0, -1.0}, vel: {0.0, 0.0, 0.0}}
-    rx = %World.Node{id: :rx, type: :rx, pos: {1.0, 1.0, 1.0}, vel: {0.0, 0.0, 0.0}}
+    tx = %World.Node{id: :tx, type: :tx, pos: {1.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx, type: :rx, pos: {2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
     paths = MultiBounce.paths(tx, rx, [wall1, wall2, wall3], max_bounces: 3, speed_of_light: 1.0)
 
@@ -318,8 +349,19 @@ defmodule Chronos.Channel.MultiBounceTest do
     bounce_counts = Enum.map(paths, & &1.bounces)
     assert bounce_counts == Enum.sort(bounce_counts)
 
-    # Within same bounce count, check wall id ordering
-    # This is implicitly tested by the determinism test above
+    # The scene yields one path per wall for the first order and one second
+    # order path, so the ordering assertions below are not vacuous.
+    assert length(paths) >= 3
+
+    # Within the same bounce count, the wall sequences are ordered by wall id.
+    for order <- Enum.uniq(bounce_counts) do
+      wall_sequences =
+        paths
+        |> Enum.filter(&(&1.bounces == order))
+        |> Enum.map(&Enum.map(&1.interactions, fn {:reflection, id} -> to_string(id) end))
+
+      assert wall_sequences == Enum.sort(wall_sequences)
+    end
   end
 
   # -------------------------------------------------------------------------

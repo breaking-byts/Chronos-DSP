@@ -87,7 +87,9 @@ tick are UI-local state.
 - Free-space amplitude is `1 / distance`, normalized so a one-metre path has
   unit gain. It is not a calibrated FSPL link budget (no antenna gains,
   wavelength term, or transmit power).
-- A wall blocks the LOS path when the segment intersects its polygon.
+- A wall blocks the LOS path when the segment intersects its polygon. A point
+  on the polygon boundary counts as inside the polygon, so a bounce or a
+  transmission that lands exactly on an edge is a hit.
 - Reflections use the image-source method: mirror the transmitter across the
   walls of an ordered sequence, intersect the mirrored ray with the last wall,
   then back-track the bounce points. Every bounce point must lie inside its
@@ -96,7 +98,10 @@ tick are UI-local state.
   every wall the path touches.
 - Diffraction uses an ITU-R P.526-style single knife edge: for each blocking
   wall, the edge closest to the direct line gives a Fresnel parameter, and the
-  knife-edge loss is added to the wall material's diffraction loss.
+  knife-edge loss is added to the wall material's diffraction loss. A finite 3D
+  wall can straddle the direct line, so the obstruction height is the
+  (unsigned) distance from that line to the closest edge of the wall, and the
+  cheapest edge wins.
 - Transmission paths exist only when the direct segment is blocked. There is one
   per blocked segment, and it accumulates the transmission loss of every wall
   it crosses exactly once.

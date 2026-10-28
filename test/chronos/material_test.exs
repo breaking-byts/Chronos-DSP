@@ -52,6 +52,34 @@ defmodule Chronos.MaterialTest do
     end
   end
 
+  test "catalogue includes the added materials with illustrative losses" do
+    expected_losses = %{
+      plaster: {3.0, 8.0, 3.0},
+      plywood: {3.5, 7.0, 3.5},
+      reinforced_concrete: {8.0, 24.0, 8.0},
+      soil: {5.0, 12.0, 5.0},
+      water: {2.0, 20.0, 2.0}
+    }
+
+    for {id, {reflection, transmission, diffraction}} <- expected_losses do
+      material = Material.get!(id)
+
+      assert material.reflection_loss_db == reflection
+      assert material.transmission_loss_db == transmission
+      assert material.diffraction_loss_db == diffraction
+    end
+
+    # Every material has positive losses, and the catalogue is ordered by id.
+    ids = Enum.map(Material.list(), & &1.id)
+    assert ids == Enum.sort(ids)
+
+    for material <- Material.list() do
+      assert material.reflection_loss_db > 0.0
+      assert material.transmission_loss_db > 0.0
+      assert material.diffraction_loss_db > 0.0
+    end
+  end
+
   test "get/1 resolves atom and string ids and falls back for unknown ids" do
     assert Material.get(:brick) == Material.get("brick")
     assert Material.get(:brick).id == :brick

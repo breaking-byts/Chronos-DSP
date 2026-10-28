@@ -21,7 +21,7 @@ defmodule Chronos.Channel.MultiBounce do
 
   # The ordered wall sequences grow factorially (n walls, k bounces), so the
   # number of candidate sequences that may be examined is capped as well.
-  @default_max_candidates 512
+  @default_max_candidates 1024
 
   @doc """
   Returns all reflection paths up to `max_bounces` order, capped at `max_paths`.
@@ -37,14 +37,17 @@ defmodule Chronos.Channel.MultiBounce do
     * `:max_bounces` - highest reflection order to compute (default 2, minimum 1)
     * `:max_paths`   - hard cap on returned paths (default 64)
     * `:max_candidates` - hard cap on the wall sequences that may be examined
-      (default 512). The number of ordered sequences grows factorially with
-      the wall count and bounce order, so this bounds the work per call.
+      (default 1024). The number of ordered sequences grows factorially with
+      the wall count and bounce order, so this bounds the work per call. The
+      lowest reflection orders are examined first, so a scene with many walls
+      may not reach the requested bounce order.
     * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
       propagation options from `Chronos.Channel.Physics`
 
   Paths are ordered by bounce count (all first-order, then second-order, etc.),
   and within each order by the sorted wall ids of the sequence. This order is
-  deterministic and stable.
+  deterministic and stable. Paths that describe the same geometry (a ray that
+  hits the corner where two walls meet) are returned once.
   """
   @spec paths(World.Node.t(), World.Node.t(), list(wall()), opts()) :: [Path.t()]
   def paths(tx, rx, walls, opts \\ []) do
@@ -72,6 +75,14 @@ defmodule Chronos.Channel.MultiBounce do
       end
     end)
     |> Enum.reverse()
+    |> Enum.uniq_by(&path_key/1)
+  end
+
+  # Two bounce orders can describe the same physical path (a ray that hits the
+  # corner where two walls meet), so paths are de-duplicated by their geometry.
+  @spec path_key(Path.t()) :: list(tuple())
+  defp path_key(%Path{points: points}) do
+    Enum.map(points, fn {x, y, z} -> {round(x * 1.0e9), round(y * 1.0e9), round(z * 1.0e9)} end)
   end
 
   # -------------------------------------------------------------------------
@@ -250,10 +261,12 @@ defmodule Chronos.Channel.MultiBounce do
     end
   end
 
-  # Check if segment is occluded by any wall NOT in ignore_ids
+  # Check if the segment passes through any wall that is not in ignore_ids. A
+  # wall that the leg only grazes at one of its ends (the corner of two walls,
+  # for example) does not block the leg.
   @spec segment_occluded_by_any?(vec3(), vec3(), list(wall()), [term()]) :: boolean()
   defp segment_occluded_by_any?(a, b, walls, ignore_ids) do
-    World.segment_occluded_by?(a, b, walls, ignore_ids)
+    World.segment_blocked_by?(a, b, walls, ignore_ids)
   end
 
   # Build the final Path struct

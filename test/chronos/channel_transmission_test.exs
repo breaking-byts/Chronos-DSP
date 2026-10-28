@@ -3,7 +3,6 @@ defmodule Chronos.Channel.TransmissionTest do
 
   alias Chronos.Channel.Transmission
   alias Chronos.Channel.Physics
-  alias Chronos.Material
   alias Chronos.World
 
   @tag :transmission
@@ -74,50 +73,31 @@ defmodule Chronos.Channel.TransmissionTest do
 
   @tag :transmission
   test "material matters - metal attenuates more than drywall" do
-    # Note: In this worktree walls use explicit attenuation_db for reflection.
-    # For transmission, Material.transmission_loss_db falls back to default material (concrete)
-    # when no material field is present. So we test with different attenuation_db values
-    # on the wall to simulate different materials.
-    #
-    # Metal wall (high attenuation_db simulates metal-like transmission loss)
-    _metal_wall = %World.Wall{
+    metal_wall = %World.Wall{
       id: :metal_wall,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
       normal: {1.0, 0.0, 0.0},
-      # High attenuation to simulate metal
-      attenuation_db: 40.0
+      material: :metal
     }
 
-    # Drywall wall (low attenuation_db simulates drywall-like transmission loss)
-    _drywall_wall = %World.Wall{
+    drywall_wall = %World.Wall{
       id: :drywall_wall,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
       normal: {1.0, 0.0, 0.0},
-      # Low attenuation to simulate drywall
-      attenuation_db: 4.0
+      material: :drywall
     }
 
-    _tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
-    _rx = %World.Node{id: :rx, type: :rx, pos: {1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+    tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx, type: :rx, pos: {1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
-    # Use the wall's attenuation_db as a proxy for material transmission loss
-    # by temporarily patching the material catalogue behavior - but since we can't
-    # modify Material, we instead test that different attenuation_db values on walls
-    # would affect reflection loss. For transmission, the Material module falls back
-    # to default (concrete = 18 dB transmission loss) when no material field exists.
-    #
-    # However, we can verify the relation by using the actual material catalogue
-    # values through Material.get/1
-    metal_mat = Material.get(:metal)
-    drywall_mat = Material.get(:drywall)
+    [metal_path] = Transmission.paths(tx, rx, [metal_wall], speed_of_light: 1.0)
+    [drywall_path] = Transmission.paths(tx, rx, [drywall_wall], speed_of_light: 1.0)
 
-    # Metal transmission loss (40 dB) > Drywall transmission loss (4 dB)
-    assert metal_mat.transmission_loss_db > drywall_mat.transmission_loss_db
-
-    # Now test with walls that have material field (if supported) or just verify
-    # the catalogue values are as expected
-    assert metal_mat.transmission_loss_db == 40.0
-    assert drywall_mat.transmission_loss_db == 4.0
+    # The material decides the transmission loss: metal keeps far less of the
+    # signal than drywall.
+    assert metal_path.gain < drywall_path.gain
+    assert metal_path.interactions == [{:transmission, :metal_wall}]
+    assert drywall_path.interactions == [{:transmission, :drywall_wall}]
   end
 
   @tag :transmission

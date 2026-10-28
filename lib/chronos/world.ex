@@ -41,6 +41,10 @@ defmodule Chronos.World do
   @type vec3 :: {float(), float(), float()}
   @type t :: %__MODULE__{time_s: float(), nodes: map(), walls: map()}
 
+  # Tolerance used when deciding whether a segment intersection happens in the
+  # interior of the segment rather than at one of its ends.
+  @epsilon 1.0e-9
+
   @enforce_keys [:time_s, :nodes, :walls]
   defstruct [:time_s, :nodes, :walls]
 
@@ -80,6 +84,37 @@ defmodule Chronos.World do
       _ ->
         false
     end)
+  end
+
+  @doc """
+  Returns true when the segment `a`-`b` passes *through* a wall polygon.
+
+  Unlike `segment_occluded_by?/4`, an intersection at the very end of the
+  segment does not block the path: a leg that only grazes the corner of a wall
+  it does not bounce off is not blocked by that wall.
+  """
+  @spec segment_blocked_by?(Geometry.vec3(), Geometry.vec3(), [Wall.t()], [term()]) ::
+          boolean()
+  def segment_blocked_by?(a, b, walls, ignore_ids) do
+    Enum.any?(walls, fn
+      %Wall{id: id, vertices: vertices, normal: normal} ->
+        id not in ignore_ids and length(vertices) >= 3 and
+          blocks?(a, b, vertices, normal)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp blocks?(a, b, vertices, normal) do
+    case Geometry.segment_plane_intersect(a, b, hd(vertices), normal) do
+      {:ok, point, t} ->
+        t > @epsilon and t < 1.0 - @epsilon and
+          Geometry.point_in_polygon(point, vertices, normal)
+
+      _ ->
+        false
+    end
   end
 
   @doc """

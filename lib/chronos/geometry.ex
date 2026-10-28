@@ -82,7 +82,11 @@ defmodule Chronos.Geometry do
 
   def point_in_polygon(point, vertices, plane_normal) do
     {proj_point, proj_vertices} = project_to_2d(point, vertices, plane_normal)
-    point_in_polygon_2d(proj_point, proj_vertices)
+
+    # A point on the boundary counts as inside: a reflection or transmission
+    # that lands exactly on a wall edge is a valid hit, not a miss.
+    point_on_polygon_2d?(proj_point, proj_vertices) or
+      point_in_polygon_2d(proj_point, proj_vertices)
   end
 
   @doc """
@@ -141,6 +145,27 @@ defmodule Chronos.Geometry do
   end
 
   defp clamp(value, min, max), do: value |> max(min) |> min(max)
+
+  defp point_on_polygon_2d?(point, vertices) do
+    vertices
+    |> polygon_edges_2d()
+    |> Enum.any?(fn {from, to} -> point_on_segment_2d?(point, from, to) end)
+  end
+
+  defp polygon_edges_2d([first | rest]) do
+    Enum.zip(rest, tl(rest) ++ [first])
+  end
+
+  defp point_on_segment_2d?({px, py}, {x1, y1}, {x2, y2}) do
+    cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+
+    if abs(cross) > 1.0e-9 do
+      false
+    else
+      px >= min(x1, x2) - 1.0e-9 and px <= max(x1, x2) + 1.0e-9 and
+        py >= min(y1, y2) - 1.0e-9 and py <= max(y1, y2) + 1.0e-9
+    end
+  end
 
   defp project_to_2d(point, vertices, {nx, ny, nz}) do
     {ax, ay, az} = {abs(nx), abs(ny), abs(nz)}

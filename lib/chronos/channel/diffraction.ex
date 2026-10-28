@@ -22,7 +22,6 @@ defmodule Chronos.Channel.Diffraction do
   alias Chronos.World
 
   @default_max_paths 8
-  @epsilon 1.0e-12
 
   @doc """
   Returns the best diffracted path for every wall that blocks the direct path.
@@ -103,7 +102,6 @@ defmodule Chronos.Channel.Diffraction do
       vertices
       |> Geometry.polygon_edges()
       |> Enum.map(&edge_candidate(&1, tx_pos, direction))
-      |> Enum.reject(&is_nil/1)
       |> Enum.filter(fn {edge_point, _height, _distance} ->
         edge_point != tx_pos and edge_point != rx_pos
       end)
@@ -167,9 +165,7 @@ defmodule Chronos.Channel.Diffraction do
     line_point = closest_point_on_infinite_line(edge_point, tx_pos, direction)
     height = Geometry.distance(edge_point, line_point)
 
-    if height > @epsilon do
-      {edge_point, height, Geometry.distance(tx_pos, edge_point)}
-    end
+    {edge_point, height, Geometry.distance(tx_pos, edge_point)}
   end
 
   defp build_path(
@@ -203,15 +199,36 @@ defmodule Chronos.Channel.Diffraction do
     end
   end
 
-  defp knife_edge_loss_db(fresnel_parameter) do
-    t = :math.sqrt((fresnel_parameter - 0.1) * (fresnel_parameter - 0.1) + 1.0)
-    argument = :math.sqrt((t - 0.1) * (t - 0.1) + 1.0) + t - 0.1
+  @doc """
+  Returns the ITU-R P.526 single knife-edge diffraction loss in decibels.
+
+  `fresnel_parameter` is the Fresnel parameter `v`:
+
+      v = h * sqrt(2 / wavelength * (1 / d1 + 1 / d2))
+
+  where `h` is the obstruction height above the direct path, and `d1` and `d2`
+  are the distances from the transmitter and the receiver to the obstruction.
+  The loss is
+
+      J(v) = 6.9 + 20 * log10(sqrt((v - 0.1)^2 + 1) + v - 0.1)
+
+  which gives about 6 dB at `v = 0`, 14 dB at `v = 1`, and 19 dB at `v = 2`.
+  Values below `-0.78` mean the obstruction is deep in the shadow region and
+  the diffraction loss is negligible.
+  """
+  @spec knife_edge_loss_db(float()) :: float()
+  def knife_edge_loss_db(fresnel_parameter) when fresnel_parameter < -0.78, do: 0.0
+
+  def knife_edge_loss_db(fresnel_parameter) do
+    argument =
+      :math.sqrt((fresnel_parameter - 0.1) * (fresnel_parameter - 0.1) + 1.0) +
+        fresnel_parameter - 0.1
 
     6.9 + 20.0 * :math.log10(argument)
   end
 
   defp segment_occluded_by_others?(a, b, walls, ignored_ids) do
-    World.segment_occluded_by?(a, b, walls, MapSet.to_list(ignored_ids))
+    World.segment_blocked_by?(a, b, walls, MapSet.to_list(ignored_ids))
   end
 
   defp closest_point_on_infinite_line(point, tx_pos, direction) do

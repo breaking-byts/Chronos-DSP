@@ -108,7 +108,12 @@ defmodule Chronos.Channel.Transmission do
         acc + Material.transmission_loss_db(wall)
       end)
 
-    points = [tx_pos, crossing_point(tx_pos, rx_pos, crossed), rx_pos]
+    points =
+      case crossing_point(tx_pos, rx_pos, crossed) do
+        nil -> [tx_pos, rx_pos]
+        point -> [tx_pos, point, rx_pos]
+      end
+
     total_length = Physics.path_length(points)
 
     %Path{
@@ -123,20 +128,17 @@ defmodule Chronos.Channel.Transmission do
   end
 
   # The intersection of the segment with the first crossed wall's plane, used
-  # so the dashboard can show where the signal crosses the wall.
+  # so the dashboard can show where the signal crosses the wall. Returns `nil`
+  # when the crossing point cannot be placed inside the wall.
   defp crossing_point(tx_pos, rx_pos, crossed) do
     %World.Wall{vertices: vertices, normal: normal} = hd(crossed)
 
     case Geometry.segment_plane_intersect(tx_pos, rx_pos, hd(vertices), normal) do
       {:ok, point, _t} ->
-        if Geometry.point_in_polygon(point, vertices, normal) do
-          point
-        else
-          rx_pos
-        end
+        if Geometry.point_in_polygon(point, vertices, normal), do: point
 
       _ ->
-        rx_pos
+        nil
     end
   end
 

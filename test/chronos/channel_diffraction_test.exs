@@ -159,10 +159,25 @@ defmodule Chronos.Channel.DiffractionTest do
     }
   end
 
-  defp knife_edge_loss_db(fresnel_parameter) do
-    t = :math.sqrt((fresnel_parameter - 0.1) * (fresnel_parameter - 0.1) + 1.0)
-    argument = :math.sqrt((t - 0.1) * (t - 0.1) + 1.0) + t - 0.1
-
-    6.9 + 20.0 * :math.log10(argument)
+  test "knife edge loss is negligible deep in the shadow region" do
+    # ITU-R P.526: below v = -0.78 the obstruction is deep in the shadow
+    # region and the diffraction loss is negligible.
+    assert Diffraction.knife_edge_loss_db(-1.0) == 0.0
+    assert Diffraction.knife_edge_loss_db(-5.0) == 0.0
   end
+
+  test "knife edge loss matches the ITU-R P.526 reference values" do
+    # Canonical single knife-edge values: ~6 dB at v = 0, ~14 dB at v = 1 and
+    # ~19 dB at v = 2.
+    assert_in_diffraction_loss(Diffraction.knife_edge_loss_db(0.0), 6.03, 0.05)
+    assert_in_diffraction_loss(Diffraction.knife_edge_loss_db(1.0), 13.93, 0.05)
+    assert_in_diffraction_loss(Diffraction.knife_edge_loss_db(2.0), 19.04, 0.05)
+  end
+
+  defp assert_in_diffraction_loss(actual, expected, tolerance) do
+    assert abs(actual - expected) <= tolerance
+  end
+
+  defp knife_edge_loss_db(fresnel_parameter),
+    do: Diffraction.knife_edge_loss_db(fresnel_parameter)
 end

@@ -25,6 +25,9 @@ defmodule Chronos.Channel do
     * `:max_paths` - hard cap on the paths returned per receiver (default `32`)
     * `:diffraction` - set to `false` to skip diffracted paths (default `true`)
     * `:transmission` - set to `false` to skip penetrating paths (default `true`)
+
+  Paths are returned strongest first, so the cap keeps the paths that
+  contribute the most energy.
   """
 
   alias Chronos.Channel.Diffraction
@@ -58,21 +61,21 @@ defmodule Chronos.Channel do
           |> Map.values()
           |> Enum.sort_by(&to_string(&1.id))
 
+        path_opts = Keyword.put_new(opts, :max_paths, @default_max_paths)
+
         paths =
           Enum.flat_map(txs, fn tx ->
             los = los_path(tx, rx, walls, opts)
-            reflections = MultiBounce.paths(tx, rx, walls, bounce_opts(opts))
-            diffraction = Diffraction.paths(tx, rx, walls, opts)
-            transmission = Transmission.paths(tx, rx, walls, opts)
+            reflections = MultiBounce.paths(tx, rx, walls, bounce_opts(path_opts))
+            diffraction = Diffraction.paths(tx, rx, walls, path_opts)
+            transmission = Transmission.paths(tx, rx, walls, path_opts)
 
-            [
-              los
-              | sort_by_strength(reflections ++ diffraction ++ transmission)
-            ]
-            |> Enum.reject(&is_nil/1)
+            sort_by_strength(
+              Enum.reject([los | reflections ++ diffraction ++ transmission], &is_nil/1)
+            )
           end)
 
-        {:ok, Enum.take(paths, max_paths(opts))}
+        {:ok, Enum.take(paths, max_paths(path_opts))}
 
       %World.Node{} ->
         {:error, :unknown_rx}
