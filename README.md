@@ -162,6 +162,27 @@ curl -s 'localhost:4000/api/export/history?from=0&to=50&step=5&scenario=orbit' \
 Scene-snapshot export and a UI export button are planned follow-ups (they pair
 with the scene store and interactive-editing tracks).
 
+## Named scenes
+
+`GET/POST/DELETE /api/scenes` stores named scenes as JSON files (one per scene)
+for the showcase. `POST` parameters come from the JSON body; the endpoint-wide
+`/api/*` rules reject query strings on writes and reserved `_`-prefixed fields.
+Errors use the uniform `{"error": code}` JSON shape (`invalid_name`,
+`invalid_scene`, `name_taken`, `not_found`, `storage_error`).
+
+Storage is capped and **ephemeral by design** (ADR 0001): at most 100 scenes,
+10 MiB total, 64 KiB per scene, 1 KiB descriptions, 256 vertices per wall;
+writing beyond a cap evicts the oldest scenes (oldest first, by modification
+time). The default directory
+lives inside the release, so scenes are lost on redeploy unless `SCENE_DIR`
+points at a persistent volume. Any visitor may delete any scene (single-tenant
+showcase, no ownership). See [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+```bash
+curl -s localhost:4000/api/scenes -H 'content-type: application/json' \
+  -d '{"name":"my_scene","nodes":[{"id":"tx1","type":"tx","pos":[0,0,0],"vel":[0,0,0]}],"walls":[]}'
+```
+
 ## Tests and checks
 
 ```bash
@@ -176,12 +197,13 @@ mix format --check-formatted
 bin/profile                               # throughput profile script
 ```
 
-The Elixir suite has 245 tests and the Rust crate has 2. The Elixir suite
+The Elixir suite has 275 tests and the Rust crate has 2. The Elixir suite
 includes channel/scenario geometry, the material catalogue and
 multi-bounce/diffraction/transmission models, uniform option validation, DSP
 reference and NIF parity, packing, modem, scene bounds, frame/server/supervisor
 behavior, LiveView controls, the headless JSON API, CSV export
-(metrics/history/samples) and their uniform error shapes, and health endpoints.
+(metrics/history/samples), the capped named-scene store, and their uniform
+error shapes, and health endpoints.
 
 ## Docker
 

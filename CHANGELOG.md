@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history (at most 1000 rows, stepped incrementally), and the first receiver's
   complex samples. CSV-only content negotiation; parameters from the query
   string.
+- Named-scene store (`Chronos.SceneStore`) and JSON API (`GET/POST/DELETE
+  /api/scenes`): file-backed pretty-JSON scenes with traversal-safe names,
+  atomic writes, and atom-safe ids. Capped for the anonymous showcase (100
+  scenes, 10 MiB total, 64 KiB/scene, 1 KiB descriptions, 256 vertices/wall)
+  with oldest-first eviction and orphan cleanup; ephemeral by default (ADR 0001),
+  `SCENE_DIR` for a persistent volume.
 
 ### Changed
 
@@ -52,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   simulation and export controllers instead of duplicated literals.
 - CSV export errors use the uniform `{"error": message}` JSON shape, and the
   export pipeline accepts CSV only (a JSON `Accept` header returns 406).
+- Scene walls carry a `Chronos.Material` id; `attenuation_db` is an explicit
+  reflection override (finite, non-negative) rather than a baked loss, so
+  transmission and diffraction use the wall's material.
+- `SCENE_DIR` runtime wiring; DEPLOYMENT.md, fly.toml, and render.yaml document
+  the ephemeral scene contract and multi-machine divergence.
 - `Chronos.Channel.paths_for_rx/3` now returns line-of-sight, reflection,
   diffraction, and transmission paths, capped by `:max_paths` (default 32) with
   the strongest paths kept first. `:diffraction` and `:transmission` can be

@@ -1,9 +1,10 @@
 # Deployment
 
 Chronos-DSP ships as a single stateless container: a Phoenix release plus the
-compiled Rust NIF. Simulation state lives in supervised processes inside the
-BEAM and is discarded when a session or the container stops. There is no
-database and no migration step.
+compiled Rust NIF. Live simulation state lives in supervised processes inside
+the BEAM and is discarded when a session or the container stops. Named scenes
+(see below) are file-backed but ephemeral by default. There is no database and
+no migration step.
 
 This document is the contract for the deployment files at the repository root
 (`Dockerfile`, `docker-compose.yml`, `fly.toml`, `render.yaml`). If those files
@@ -129,6 +130,30 @@ SECRET_KEY_BASE="$(openssl rand -base64 48)" docker compose up --build
 The application is stateless; scaling out is safe only with sticky WebSocket
 routing. Each browser session is pinned to one BEAM node for the life of its
 LiveView, so do not run multiple nodes behind a plain round-robin load balancer.
+
+## Named scenes (ephemeral)
+
+The JSON API (`GET/POST/DELETE /api/scenes`) stores named scenes as pretty-JSON
+files, one per scene, via `Chronos.SceneStore`. This is the only persisted state
+and it is **ephemeral by design** (ADR 0001):
+
+- The store directory defaults to `priv/scenes` *inside the release*, so every
+  redeploy or rollback discards all scenes. Set `SCENE_DIR` to a persistent
+  volume (e.g. a Fly `[mounts]` target or a Render disk) to survive redeploys.
+- Storage is capped for the anonymous public showcase: at most 100 scenes,
+  10 MiB total, 64 KiB per scene, 1 KiB descriptions, 256 vertices per wall.
+  Writing beyond a cap evicts the oldest scenes (oldest first, by modification
+  time). Orphaned temp files and invalid JSON are cleaned on write.
+- There is no ownership: any visitor may delete any scene. This is accepted
+  single-tenant showcase behavior, not a multi-user data store.
+- `:global` write locks do not span unclustered machines. Running multiple
+  nodes (Fly machines, Render instances) gives each node its own divergent
+  store; keep one machine/instance, or accept divergence.
+- `list/0` re-reads and re-validates every file (O(N), bounded by the 100-scene
+  cap); caching is a performance-track follow-up.
+
+No volume is configured by default in `fly.toml` or `render.yaml`; attaching one
+is a deliberate future step, not part of the stateless contract.
 
 ## Fly.io
 
@@ -335,5 +360,6 @@ badge reports `Native NIF`.
 6. Keep the previous image tag available until the new one has served traffic
    successfully.
 
-Rolling back a release does not restore simulation state, because none is
-persisted.
+Rolling back a release does not restore live simulation state (none is
+persisted) and, unless `SCENE_DIR` points at a persistent volume, discards the
+named scenes stored inside the release directory.

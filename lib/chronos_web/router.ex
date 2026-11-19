@@ -22,6 +22,11 @@ defmodule ChronosWeb.Router do
     get("/healthz", HealthController, :health)
     get("/readyz", HealthController, :ready)
     post("/api/simulate", SimulationController, :simulate)
+
+    get("/api/scenes", SceneController, :index)
+    post("/api/scenes", SceneController, :create)
+    get("/api/scenes/:name", SceneController, :show)
+    delete("/api/scenes/:name", SceneController, :delete)
   end
 
   scope "/api", ChronosWeb do
