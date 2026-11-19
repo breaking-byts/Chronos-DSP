@@ -13,6 +13,10 @@ defmodule Chronos.Channel.Diffraction do
   edge point to the direct line. Both sides of a blocking wall remain
   eligible, while an edge that lies directly on the line is not a diffraction
   edge and is skipped.
+
+  The ideal knife-edge loss `J(v)` assumes a perfectly conducting edge; the
+  wall material's diffraction loss is added on top as an illustrative
+  correction. This is a teaching model, not a calibrated prediction.
   """
 
   alias Chronos.Channel.Path
@@ -29,9 +33,12 @@ defmodule Chronos.Channel.Diffraction do
   Options:
 
     * `:diffraction` - set to `false` to disable diffraction (default `true`)
-    * `:max_paths` - maximum number of paths to return (default `8`)
+    * `:max_paths` - maximum number of paths to return (default `32`)
     * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
       propagation options from `Chronos.Channel.Physics`
+
+  Invalid option values raise `ArgumentError`
+  (`Chronos.Channel.Physics.validate_opts!/1`).
 
   Walls are processed in stable id order. If several edges on one wall have
   the same loss, polygon vertex order breaks the tie.
@@ -43,6 +50,8 @@ defmodule Chronos.Channel.Diffraction do
         walls,
         opts
       ) do
+    opts = Physics.validate_opts!(opts)
+
     with true <- Keyword.get(opts, :diffraction, true) != false,
          {:ok, direction} <- line_direction(tx_pos, rx_pos),
          {:ok, wavelength} <- positive_wavelength(opts),
@@ -85,7 +94,7 @@ defmodule Chronos.Channel.Diffraction do
   end
 
   defp best_path_for_wall(
-         %World.Wall{id: wall_id, vertices: vertices} = wall,
+         %World.Wall{vertices: vertices} = wall,
          tx_pos,
          rx_pos,
          tx_vel,
@@ -96,7 +105,12 @@ defmodule Chronos.Channel.Diffraction do
          wavelength,
          speed_of_light
        ) do
-    ignored_ids = MapSet.new([wall_id])
+    # Legs are validated against every wall, including the blocking wall
+    # itself: a leg may touch the wall at the diffraction edge (endpoint
+    # contact, which `World.segment_blocked_by?/4` allows) but must not pass
+    # through its interior. For a planar wall a leg ending on the wall plane
+    # can only contact it at that endpoint, so this is defense in depth.
+    ignored_ids = MapSet.new()
 
     candidates =
       vertices
@@ -213,8 +227,10 @@ defmodule Chronos.Channel.Diffraction do
       J(v) = 6.9 + 20 * log10(sqrt((v - 0.1)^2 + 1) + v - 0.1)
 
   which gives about 6 dB at `v = 0`, 14 dB at `v = 1`, and 19 dB at `v = 2`.
-  Values below `-0.78` mean the obstruction is deep in the shadow region and
-  the diffraction loss is negligible.
+  Values below `-0.78` mean the obstruction is well clear of the direct path
+  (negative clearance), so the diffraction loss is negligible. The geometric
+  model only produces `v >= 0` because the obstruction height is unsigned;
+  this clause keeps the function total for direct callers.
   """
   @spec knife_edge_loss_db(float()) :: float()
   def knife_edge_loss_db(fresnel_parameter) when fresnel_parameter < -0.78, do: 0.0

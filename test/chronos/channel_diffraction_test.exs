@@ -134,7 +134,14 @@ defmodule Chronos.Channel.DiffractionTest do
   end
 
   test "max_paths is a hard cap" do
-    assert Diffraction.paths(tx_node(), rx_node(), [blocking_wall()], max_paths: 0) == []
+    assert [path] = Diffraction.paths(tx_node(), rx_node(), [blocking_wall()], max_paths: 1)
+    assert path.kind == :diffraction
+  end
+
+  test "max_paths below 1 raises" do
+    assert_raise ArgumentError, ~r/max_paths/, fn ->
+      Diffraction.paths(tx_node(), rx_node(), [blocking_wall()], max_paths: 0)
+    end
   end
 
   defp tx_node do
@@ -159,9 +166,10 @@ defmodule Chronos.Channel.DiffractionTest do
     }
   end
 
-  test "knife edge loss is negligible deep in the shadow region" do
-    # ITU-R P.526: below v = -0.78 the obstruction is deep in the shadow
-    # region and the diffraction loss is negligible.
+  test "knife edge loss is negligible for negative clearance" do
+    # ITU-R P.526: below v = -0.78 the obstruction is well clear of the direct
+    # path (negative clearance) and the diffraction loss is negligible. The
+    # geometric model only produces v >= 0; this exercises the total function.
     assert Diffraction.knife_edge_loss_db(-1.0) == 0.0
     assert Diffraction.knife_edge_loss_db(-5.0) == 0.0
   end

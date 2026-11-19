@@ -13,9 +13,12 @@ defmodule Chronos.Material do
   the catalogue as a measurement-grade database.
 
   A wall's material supplies all three losses. An explicit numeric
-  `wall.attenuation_db` overrides only the reflection loss; transmission and
-  diffraction always come from the material.
+  `wall.attenuation_db` overrides only the reflection loss, and only when it
+  is finite and non-negative; transmission and diffraction always come from
+  the material.
   """
+
+  alias Chronos.Channel.Physics
 
   @default_id :concrete
 
@@ -96,9 +99,18 @@ defmodule Chronos.Material do
   def for_wall(%{material: id}), do: fetch(id) || default()
   def for_wall(_wall), do: default()
 
-  @doc "Returns the reflection loss for a wall, preferring an explicit `attenuation_db`."
+  @doc """
+  Returns the reflection loss for a wall, preferring an explicit `attenuation_db`.
+
+  The override only takes effect when it is finite and non-negative. A
+  negative or non-finite override would amplify the signal (or poison the
+  float32 packing), so it is ignored in favour of the material's loss.
+  """
   @spec reflection_loss_db(map()) :: float()
-  def reflection_loss_db(%{attenuation_db: db}) when is_number(db), do: db
+  def reflection_loss_db(%{attenuation_db: db} = wall) when is_number(db) do
+    if Physics.finite?(db) and db >= 0.0, do: db, else: for_wall(wall).reflection_loss_db
+  end
+
   def reflection_loss_db(wall), do: for_wall(wall).reflection_loss_db
 
   @doc "Returns the transmission loss for a wall's material."

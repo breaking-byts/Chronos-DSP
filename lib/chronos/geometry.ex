@@ -77,6 +77,15 @@ defmodule Chronos.Geometry do
     end
   end
 
+  @doc """
+  Returns true when the point lies inside the polygon, boundary included.
+
+  The point must lie on the polygon's plane (within tolerance), and the
+  polygon needs at least three vertices. A point exactly on an edge counts as
+  inside: a reflection or transmission that lands on a wall edge is a valid
+  hit, not a miss. Use `point_strictly_inside_polygon?/3` when grazing contact
+  must not count (occlusion checks).
+  """
   @spec point_in_polygon(vec3(), list(vec3()), vec3()) :: boolean()
   def point_in_polygon(_point, vertices, _plane_normal) when length(vertices) < 3, do: false
 

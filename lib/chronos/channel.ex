@@ -28,6 +28,9 @@ defmodule Chronos.Channel do
 
   Paths are returned strongest first, so the cap keeps the paths that
   contribute the most energy.
+
+  Invalid option values raise `ArgumentError` uniformly across every path
+  model (`Chronos.Channel.Physics.validate_opts!/1`).
   """
 
   alias Chronos.Channel.Diffraction
@@ -49,6 +52,8 @@ defmodule Chronos.Channel do
   @spec paths_for_rx(World.t(), term(), keyword()) ::
           {:ok, list(Path.t())} | {:error, :unknown_rx}
   def paths_for_rx(%World{} = world, rx_id, opts \\ []) do
+    opts = Physics.validate_opts!(opts)
+
     case World.node(world, rx_id) do
       %World.Node{type: :rx} = rx ->
         txs =
@@ -106,6 +111,8 @@ defmodule Chronos.Channel do
         walls,
         opts
       ) do
+    opts = Physics.validate_opts!(opts)
+
     if segment_occluded?(tx_pos, rx_pos, walls, nil) do
       nil
     else
@@ -129,10 +136,11 @@ defmodule Chronos.Channel do
   @doc """
   Builds first-order reflection paths for each wall.
 
-  The transmitter is mirrored across the wall plane. If the mirrored segment
+  Delegates to `Chronos.Channel.MultiBounce` with `max_bounces: 1`: the
+  transmitter is mirrored across the wall plane, and if the mirrored segment
   crosses the wall polygon and neither leg is occluded by another wall, the hit
-  point defines a valid reflection path. Higher-order reflections are built by
-  `Chronos.Channel.MultiBounce`.
+  point defines a valid reflection path. Higher-order reflections use the same
+  model with a higher `:max_bounces`.
   """
   @spec reflection_paths(World.Node.t(), World.Node.t(), list(World.Wall.t()), keyword()) ::
           list(Path.t())

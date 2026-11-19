@@ -32,9 +32,12 @@ defmodule Chronos.Channel.Transmission do
     * `:transmission` - when `false`, returns `[]` (default `true`)
     * `:extra_transmission_loss_db` - extra loss added on top of the material
       loss for every penetration (default `0.0`)
-    * `:max_paths` - hard cap on returned paths (default `8`)
+    * `:max_paths` - hard cap on returned paths (default `32`)
     * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
       propagation options from `Chronos.Channel.Physics`
+
+  Invalid option values raise `ArgumentError`
+  (`Chronos.Channel.Physics.validate_opts!/1`).
 
   ## Model
 
@@ -70,6 +73,8 @@ defmodule Chronos.Channel.Transmission do
         walls,
         opts
       ) do
+    opts = Physics.validate_opts!(opts)
+
     if Keyword.get(opts, :transmission, true) == false do
       []
     else
@@ -82,6 +87,7 @@ defmodule Chronos.Channel.Transmission do
 
         crossed ->
           [build_path(tx_pos, tx_vel, rx_pos, rx_vel, crossed, opts)]
+          |> Enum.reject(&is_nil/1)
           |> Enum.take(max_paths(opts))
       end
     end
@@ -115,16 +121,24 @@ defmodule Chronos.Channel.Transmission do
       end
 
     total_length = Physics.path_length(points)
+    delay_s = total_length / Physics.speed_of_light(opts)
+    gain = Physics.path_gain(total_length, loss_db, opts)
+    doppler_hz = Physics.doppler_hz(points, tx_vel, rx_vel, Physics.wavelength(opts))
 
-    %Path{
-      delay_s: total_length / Physics.speed_of_light(opts),
-      gain: Physics.path_gain(total_length, loss_db, opts),
-      doppler_hz: Physics.doppler_hz(points, tx_vel, rx_vel, Physics.wavelength(opts)),
-      kind: :transmission,
-      bounces: 0,
-      points: points,
-      interactions: interactions
-    }
+    # Never emit a non-finite path: delay/gain/doppler feed the float32 binary
+    # packing and the NIF, where NaN/inf would corrupt the render.
+    if Physics.finite_positive?(total_length) and Physics.finite?(loss_db) and
+         Physics.finite?(delay_s) and Physics.finite?(gain) and Physics.finite?(doppler_hz) do
+      %Path{
+        delay_s: delay_s,
+        gain: gain,
+        doppler_hz: doppler_hz,
+        kind: :transmission,
+        bounces: 0,
+        points: points,
+        interactions: interactions
+      }
+    end
   end
 
   # The intersection of the segment with the first crossed wall's plane, used

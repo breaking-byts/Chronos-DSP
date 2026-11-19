@@ -6,10 +6,17 @@ defmodule Chronos.Channel.MultiBounceTest do
   alias Chronos.World
 
   # -------------------------------------------------------------------------
-  # First-order equivalence with existing model
+  # First-order paths against an independent image-method fixture
   # -------------------------------------------------------------------------
 
-  test "first-order path matches Channel.reflection_paths/4" do
+  # Hand-derived fixture, independent of the implementation: wall on the x=0
+  # plane, tx=(-1,0,0), rx=(-2,1,0). Mirroring tx across x=0 gives (1,0,0);
+  # the segment (1,0,0)->(-2,1,0) crosses x=0 at t=1/3, so the bounce point is
+  # (0, 1/3, 0). Total path length = |image - rx| = sqrt(9+1) = sqrt(10).
+  # With c=1 and f=1: delay = sqrt(10); gain = 10^(-loss/20) / sqrt(10);
+  # first-leg direction = (3,1,0)/sqrt(10), so tx velocity (1,0,0) gives
+  # Doppler = -3/sqrt(10) Hz.
+  test "first-order path matches an independent image-method fixture" do
     wall = %World.Wall{
       id: :w1,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
@@ -21,20 +28,29 @@ defmodule Chronos.Channel.MultiBounceTest do
     rx = %World.Node{id: :rx, type: :rx, pos: {-2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
     opts = [speed_of_light: 1.0, carrier_freq_hz: 1.0]
+    expected_length = :math.sqrt(10.0)
+    expected_gain = :math.pow(10.0, -3.0 / 20.0) / expected_length
 
-    [channel_path] = Channel.reflection_paths(tx, rx, [wall], opts)
-    [multi_path] = MultiBounce.paths(tx, rx, [wall], [max_bounces: 1] ++ opts)
+    [path] = MultiBounce.paths(tx, rx, [wall], [max_bounces: 1] ++ opts)
+    assert_in_delta path.delay_s, expected_length, 1.0e-9
+    assert_in_delta path.gain, expected_gain, 1.0e-9
+    assert_in_delta path.doppler_hz, 0.0, 1.0e-9
+    assert path.bounces == 1
+    assert path.kind == :reflection
+    assert length(path.points) == 3
+    assert [_tx_pos, bounce, _rx_pos] = path.points
+    assert_in_delta elem(bounce, 0), 0.0, 1.0e-9
+    assert_in_delta elem(bounce, 1), 1.0 / 3.0, 1.0e-9
+    assert_in_delta elem(bounce, 2), 0.0, 1.0e-9
+    assert path.interactions == [{:reflection, :w1}]
 
-    assert_in_delta channel_path.delay_s, multi_path.delay_s, 1.0e-9
-    assert_in_delta channel_path.gain, multi_path.gain, 1.0e-9
-    assert_in_delta channel_path.doppler_hz, multi_path.doppler_hz, 1.0e-9
-    assert multi_path.bounces == 1
-    assert multi_path.kind == :reflection
-    assert length(multi_path.points) == 3
-    assert multi_path.interactions == [{:reflection, :w1}]
+    # The public wrapper must agree with the same independent fixture.
+    [wrapped] = Channel.reflection_paths(tx, rx, [wall], opts)
+    assert_in_delta wrapped.delay_s, expected_length, 1.0e-9
+    assert_in_delta wrapped.gain, expected_gain, 1.0e-9
   end
 
-  test "first-order path with non-zero velocity matches Doppler" do
+  test "first-order Doppler matches the analytic projection" do
     wall = %World.Wall{
       id: :w1,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
@@ -46,11 +62,14 @@ defmodule Chronos.Channel.MultiBounceTest do
     rx = %World.Node{id: :rx, type: :rx, pos: {-2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
     opts = [speed_of_light: 1.0, carrier_freq_hz: 1.0]
+    expected_doppler = -3.0 / :math.sqrt(10.0)
 
-    [channel_path] = Channel.reflection_paths(tx, rx, [wall], opts)
-    [multi_path] = MultiBounce.paths(tx, rx, [wall], [max_bounces: 1] ++ opts)
+    [path] = MultiBounce.paths(tx, rx, [wall], [max_bounces: 1] ++ opts)
+    assert_in_delta path.doppler_hz, expected_doppler, 1.0e-9
+    assert_in_delta path.gain, 1.0 / :math.sqrt(10.0), 1.0e-9
 
-    assert_in_delta channel_path.doppler_hz, multi_path.doppler_hz, 1.0e-9
+    [wrapped] = Channel.reflection_paths(tx, rx, [wall], opts)
+    assert_in_delta wrapped.doppler_hz, expected_doppler, 1.0e-9
   end
 
   # -------------------------------------------------------------------------
@@ -197,7 +216,7 @@ defmodule Chronos.Channel.MultiBounceTest do
     assert not Enum.any?(paths, &(&1.bounces >= 2))
   end
 
-  test "max_bounces less than 1 is treated as 1" do
+  test "max_bounces below 1 raises instead of clamping" do
     wall = %World.Wall{
       id: :w1,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
@@ -208,13 +227,13 @@ defmodule Chronos.Channel.MultiBounceTest do
     tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
     rx = %World.Node{id: :rx, type: :rx, pos: {-2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
-    paths = MultiBounce.paths(tx, rx, [wall], max_bounces: 0, speed_of_light: 1.0)
-    assert length(paths) == 1
-    assert hd(paths).bounces == 1
+    assert_raise ArgumentError, ~r/max_bounces/, fn ->
+      MultiBounce.paths(tx, rx, [wall], max_bounces: 0, speed_of_light: 1.0)
+    end
 
-    paths = MultiBounce.paths(tx, rx, [wall], max_bounces: -5, speed_of_light: 1.0)
-    assert length(paths) == 1
-    assert hd(paths).bounces == 1
+    assert_raise ArgumentError, ~r/max_bounces/, fn ->
+      MultiBounce.paths(tx, rx, [wall], max_bounces: -5, speed_of_light: 1.0)
+    end
   end
 
   # -------------------------------------------------------------------------
@@ -245,7 +264,7 @@ defmodule Chronos.Channel.MultiBounceTest do
     assert length(paths) == 1
   end
 
-  test "max_paths less than 1 is treated as 1" do
+  test "max_paths below 1 raises instead of clamping" do
     wall = %World.Wall{
       id: :w1,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],
@@ -256,11 +275,46 @@ defmodule Chronos.Channel.MultiBounceTest do
     tx = %World.Node{id: :tx, type: :tx, pos: {-1.0, 0.0, 0.0}, vel: {0.0, 0.0, 0.0}}
     rx = %World.Node{id: :rx, type: :rx, pos: {-2.0, 1.0, 0.0}, vel: {0.0, 0.0, 0.0}}
 
-    paths = MultiBounce.paths(tx, rx, [wall], max_paths: 0, speed_of_light: 1.0)
-    assert length(paths) == 1
+    assert_raise ArgumentError, ~r/max_paths/, fn ->
+      MultiBounce.paths(tx, rx, [wall], max_paths: 0, speed_of_light: 1.0)
+    end
 
-    paths = MultiBounce.paths(tx, rx, [wall], max_paths: -10, speed_of_light: 1.0)
-    assert length(paths) == 1
+    assert_raise ArgumentError, ~r/max_paths/, fn ->
+      MultiBounce.paths(tx, rx, [wall], max_paths: -10, speed_of_light: 1.0)
+    end
+  end
+
+  test "the path cap counts distinct paths (corner duplicates never consume slots)" do
+    wall_a = %World.Wall{
+      id: :wa,
+      vertices: [{5.0, -5.0, 0.0}, {5.0, 5.0, 0.0}, {5.0, 5.0, 3.0}, {5.0, -5.0, 3.0}],
+      normal: {-1.0, 0.0, 0.0},
+      attenuation_db: 0.0
+    }
+
+    wall_b = %World.Wall{
+      id: :wb,
+      vertices: [{-5.0, 5.0, 0.0}, {5.0, 5.0, 0.0}, {5.0, 5.0, 3.0}, {-5.0, 5.0, 3.0}],
+      normal: {0.0, -1.0, 0.0},
+      attenuation_db: 0.0
+    }
+
+    tx = %World.Node{id: :tx, type: :tx, pos: {2.0, 2.0, 1.5}, vel: {0.0, 0.0, 0.0}}
+    rx = %World.Node{id: :rx, type: :rx, pos: {3.0, 3.0, 1.5}, vel: {0.0, 0.0, 0.0}}
+
+    # The corner ray is described by both [wa, wb] and [wb, wa]; under any cap
+    # the returned paths must be distinct geometry.
+    for cap <- 1..4 do
+      paths =
+        MultiBounce.paths(tx, rx, [wall_a, wall_b],
+          max_bounces: 2,
+          max_paths: cap,
+          speed_of_light: 1.0
+        )
+
+      assert length(paths) <= cap
+      assert length(paths) == length(Enum.uniq_by(paths, & &1.points))
+    end
   end
 
   # -------------------------------------------------------------------------

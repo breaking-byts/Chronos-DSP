@@ -109,6 +109,80 @@ defmodule Chronos.Channel.Physics do
   @spec finite_positive?(number()) :: boolean()
   def finite_positive?(number), do: finite?(number) and number > 0.0
 
+  @doc """
+  Validates the shared propagation options, raising `ArgumentError` on the
+  first invalid value. Every public path model calls this so invalid options
+  fail loudly and uniformly instead of raising arithmetic errors deep in the
+  math or silently returning no paths.
+
+  Checked: `:speed_of_light` and `:carrier_freq_hz` (finite and positive, with
+  a finite positive wavelength), `:global_gain` (finite, magnitude <= 1.0e100),
+  `:max_paths`, `:max_bounces`, and `:max_candidates` (positive integers when
+  present), and `:extra_transmission_loss_db` (finite, 0..1.0e6 dB when
+  present). The magnitude bounds keep downstream float arithmetic from
+  overflowing into arithmetic errors.
+  """
+  @spec validate_opts!(opts()) :: opts()
+  def validate_opts!(opts) do
+    c = speed_of_light(opts)
+    f = carrier_freq_hz(opts)
+
+    unless finite_positive?(c) do
+      raise ArgumentError, ":speed_of_light must be finite and positive, got: #{inspect(c)}"
+    end
+
+    unless finite_positive?(f) do
+      raise ArgumentError, ":carrier_freq_hz must be finite and positive, got: #{inspect(f)}"
+    end
+
+    # The division itself can overflow to an arithmetic error on extreme but
+    # finite inputs; treat that as an invalid wavelength, not a crash.
+    wavelength =
+      try do
+        c / f
+      rescue
+        ArithmeticError -> :overflow
+      end
+
+    unless finite_positive?(wavelength) do
+      raise ArgumentError,
+            ":speed_of_light / :carrier_freq_hz must yield a finite positive wavelength, got: #{inspect(wavelength)}"
+    end
+
+    gain = global_gain(opts)
+
+    unless finite?(gain) and abs(gain) <= 1.0e100 do
+      raise ArgumentError,
+            ":global_gain must be finite with magnitude <= 1.0e100, got: #{inspect(gain)}"
+    end
+
+    for key <- [:max_paths, :max_bounces, :max_candidates] do
+      case Keyword.fetch(opts, key) do
+        {:ok, value} when is_integer(value) and value > 0 ->
+          :ok
+
+        {:ok, value} ->
+          raise ArgumentError, "#{key} must be a positive integer, got: #{inspect(value)}"
+
+        :error ->
+          :ok
+      end
+    end
+
+    case Keyword.fetch(opts, :extra_transmission_loss_db) do
+      {:ok, value} ->
+        unless finite?(value) and value >= 0.0 and value <= 1.0e6 do
+          raise ArgumentError,
+                ":extra_transmission_loss_db must be finite and in 0..1.0e6 dB, got: #{inspect(value)}"
+        end
+
+      :error ->
+        :ok
+    end
+
+    opts
+  end
+
   defp last_leg_direction([first, second]), do: Geometry.normalize(Geometry.sub(second, first))
 
   defp last_leg_direction(points) do

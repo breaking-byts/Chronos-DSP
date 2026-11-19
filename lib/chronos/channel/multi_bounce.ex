@@ -35,7 +35,8 @@ defmodule Chronos.Channel.MultiBounce do
   ## Options
 
     * `:max_bounces` - highest reflection order to compute (default 2, minimum 1)
-    * `:max_paths`   - hard cap on returned paths (default 64)
+    * `:max_paths`   - hard cap on distinct returned paths (default 64;
+      `Channel.paths_for_rx/3` passes its own cap, default 32)
     * `:max_candidates` - hard cap on the wall sequences that may be examined
       (default 1024). The number of ordered sequences grows factorially with
       the wall count and bounce order, so this bounds the work per call. The
@@ -47,13 +48,18 @@ defmodule Chronos.Channel.MultiBounce do
   Paths are ordered by bounce count (all first-order, then second-order, etc.),
   and within each order by the sorted wall ids of the sequence. This order is
   deterministic and stable. Paths that describe the same geometry (a ray that
-  hits the corner where two walls meet) are returned once.
+  hits the corner where two walls meet) are returned once: duplicates are
+  removed before the cap, so `:max_paths` counts distinct paths.
+
+  Invalid option values raise `ArgumentError`
+  (`Chronos.Channel.Physics.validate_opts!/1`).
   """
   @spec paths(World.Node.t(), World.Node.t(), list(wall()), opts()) :: [Path.t()]
   def paths(tx, rx, walls, opts \\ []) do
-    max_bounces = Keyword.get(opts, :max_bounces, 2) |> max(1)
-    max_paths = Keyword.get(opts, :max_paths, 64) |> max(1)
-    max_candidates = Keyword.get(opts, :max_candidates, @default_max_candidates) |> max(1)
+    opts = Physics.validate_opts!(opts)
+    max_bounces = Keyword.get(opts, :max_bounces, 2)
+    max_paths = Keyword.get(opts, :max_paths, 64)
+    max_candidates = Keyword.get(opts, :max_candidates, @default_max_candidates)
 
     # Sort walls by id for deterministic enumeration
     sorted_walls = Enum.sort_by(walls, &to_string(&1.id))
@@ -61,21 +67,33 @@ defmodule Chronos.Channel.MultiBounce do
     # Build paths for each candidate sequence, stopping at the path cap. The
     # candidate stream is bounded as well, because the number of ordered wall
     # sequences grows factorially with the wall count and bounce order.
-    sorted_walls
-    |> sequence_stream(max_bounces)
-    |> Stream.take(max_candidates)
-    |> Enum.reduce_while([], fn seq, acc ->
-      if length(acc) >= max_paths do
-        {:halt, acc}
-      else
-        case build_path_for_sequence(tx, rx, seq, sorted_walls, opts) do
-          {:ok, path} -> {:cont, [path | acc]}
-          {:error, _reason} -> {:cont, acc}
+    # Duplicate geometry is skipped as it is found, so the cap counts distinct
+    # paths rather than letting corner duplicates consume cap slots.
+    {paths, _keys} =
+      sorted_walls
+      |> sequence_stream(max_bounces)
+      |> Stream.take(max_candidates)
+      |> Enum.reduce_while({[], MapSet.new()}, fn seq, {acc, keys} ->
+        if MapSet.size(keys) >= max_paths do
+          {:halt, {acc, keys}}
+        else
+          case build_path_for_sequence(tx, rx, seq, sorted_walls, opts) do
+            {:ok, path} ->
+              key = path_key(path)
+
+              if MapSet.member?(keys, key) do
+                {:cont, {acc, keys}}
+              else
+                {:cont, {[path | acc], MapSet.put(keys, key)}}
+              end
+
+            {:error, _reason} ->
+              {:cont, {acc, keys}}
+          end
         end
-      end
-    end)
-    |> Enum.reverse()
-    |> Enum.uniq_by(&path_key/1)
+      end)
+
+    Enum.reverse(paths)
   end
 
   # Two bounce orders can describe the same physical path (a ray that hits the

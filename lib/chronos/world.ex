@@ -24,7 +24,13 @@ defmodule Chronos.World do
   end
 
   defmodule Wall do
-    @moduledoc "A planar polygon with a material that reflects and occludes signals."
+    @moduledoc """
+    A planar polygon with a material that reflects and occludes signals.
+
+    An optional `attenuation_db` overrides the material's reflection loss only
+    when finite and non-negative; invalid overrides are ignored
+    (`Chronos.Material.reflection_loss_db/1`).
+    """
 
     @type t :: %__MODULE__{
             id: term(),

@@ -263,9 +263,10 @@ defmodule Chronos.Channel.TransmissionTest do
     paths_custom = Transmission.paths(tx, rx, walls, max_paths: 3, speed_of_light: 1.0)
     assert length(paths_custom) == 1
 
-    # max_paths = 0
-    paths_zero = Transmission.paths(tx, rx, walls, max_paths: 0, speed_of_light: 1.0)
-    assert paths_zero == []
+    # max_paths below 1 raises instead of silently returning no paths
+    assert_raise ArgumentError, ~r/max_paths/, fn ->
+      Transmission.paths(tx, rx, walls, max_paths: 0, speed_of_light: 1.0)
+    end
   end
 
   @tag :transmission

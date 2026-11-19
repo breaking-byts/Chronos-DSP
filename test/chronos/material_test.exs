@@ -117,6 +117,21 @@ defmodule Chronos.MaterialTest do
     assert Material.reflection_loss_db(material_wall) == 1.0
   end
 
+  test "negative attenuation overrides are ignored (no amplification)" do
+    # Non-finite overrides are also guarded in Material.reflection_loss_db/1,
+    # but this OTP cannot construct inf/nan as terms (overflow raises, parsers
+    # and binary patterns reject them), so only negatives are exercisable.
+    glass_loss = Material.get!(:glass).reflection_loss_db
+
+    for bad <- [-6.0, -0.5] do
+      w = wall(material: :glass, attenuation_db: bad)
+      assert Material.reflection_loss_db(w) == glass_loss
+    end
+
+    # A valid zero override still wins (lossless reflector).
+    assert Material.reflection_loss_db(wall(material: :glass, attenuation_db: 0.0)) == 0.0
+  end
+
   test "transmission and diffraction losses always come from the wall material" do
     metal_wall = wall(material: :metal, attenuation_db: 99.0)
 
