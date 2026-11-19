@@ -73,6 +73,28 @@ events. Speed and noise values are validated against fixed allowlists before
 being forwarded to `SimServer`. The scenario handler rejects unknown ids and
 resets the tick counter.
 
+## Interactive editing (design lock #20)
+
+Locked design, not yet implemented; the full spec is
+[interactive-editing.md](../design/interactive-editing.md), with the
+rendering-mode decision in
+[ADR 0002](../adr/0002-interactive-editing-2d-projection.md).
+
+- `SimCanvas` gains drag editing: pointer-event hit-testing (~12 px screen
+  radius, DPR-scaled), a client-side preview that redraws immediately with
+  zero server round-trips per move, and ONE geometry-commit event pushed on
+  release; the server then re-renders the frame through the existing
+  `sim_frame` flow. Drag stays in the XY plane — frames already carry z, and
+  height is edited via a panel numeric field, not by dragging.
+- The panel adds a TX-power slider, a per-wall attenuation override with an
+  "Auto (use material)" checkbox, a z-height field, a per-wall material
+  picker, and add/remove-wall buttons. Ranges clamp server-side via
+  `ChronosWeb.ApiParams`.
+- Scene save/load uses the existing `/api/scenes` API, with a dirty indicator
+  against the last saved/loaded snapshot; undo (~50 entries, cleared on
+  load/reset) and an Export CSV menu over the existing `/api/export`
+  endpoints round out the controls.
+
 ## Styling
 
 `app.css` defines a dark-first palette with CSS custom properties, a responsive
