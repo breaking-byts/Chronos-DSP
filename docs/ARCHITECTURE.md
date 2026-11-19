@@ -33,6 +33,7 @@ dashboard renders a top-down XY view.
 | `Chronos.Modem` | QPSK modulation/demodulation and BER. |
 | `Chronos.Metrics` | Mean complex power and bounded history. |
 | `Chronos.Export` | Deterministic RFC 4180 CSV formatting for metrics rows and complex samples. |
+| `Chronos.SceneStore` | File-backed named scenes: traversal-safe names, atomic writes, atom-safe ids, material-aware walls, capped storage with oldest-first eviction (ephemeral, ADR 0001). |
 | `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
 | `Chronos.SimFrame` | JSON-safe frame (`from_world/2`); `metrics_and_dsp/2` (API) and `metrics/2` (CSV export) skip scene/display geometry; `default_tx_block/1` is the shared deterministic QPSK test block. |
 | `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. |
@@ -42,6 +43,7 @@ dashboard renders a top-down XY view.
 | `ChronosWeb.HealthController` | `/healthz` and `/readyz`. |
 | `ChronosWeb.SimulationController` | `POST /api/simulate`: stateless JSON metrics + DSP snapshot. |
 | `ChronosWeb.ExportController` | `GET /api/export/{metrics,history,samples}`: CSV-only export. |
+| `ChronosWeb.SceneController` | `GET/POST/DELETE /api/scenes`: named-scene CRUD with uniform JSON errors. |
 | `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + query-integer validation. |
 | `ChronosWeb.ErrorJSON` | Uniform `{"error": message}` JSON error rendering. |
 | `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
@@ -188,8 +190,9 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
   `World` and `Channel` support multiple nodes.
 - The page renders a top-down projection; Z affects geometry and path delays but
   not the rendered layout.
-- Per-connection sessions are in-memory only. There is no persistence,
-  authentication, or multi-user collaboration.
+- Per-connection live sessions are in-memory only. Named scenes persist as
+  ephemeral files (capped, lost on redeploy without a `SCENE_DIR` volume); there
+  is no authentication or multi-user collaboration.
 - CSV export is CPU-bound and anonymous, with no rate limiting yet. Metrics and
   samples re-simulate from t=0 per request (the orbit kinematics are not
   expressible as one big step without changing the floating-point trajectory);

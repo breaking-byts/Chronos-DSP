@@ -94,7 +94,7 @@ defmodule ChronosWeb.SceneControllerTest do
 
       responses = [Task.await(first_task), Task.await(second_task)]
 
-      assert Enum.all?(responses, &(&1.status in [201, 409]))
+      assert Enum.sort(Enum.map(responses, & &1.status)) == [201, 409]
 
       persisted_scene =
         Path.join(dir, "#{name}.json")
@@ -141,6 +141,42 @@ defmodule ChronosWeb.SceneControllerTest do
 
     assert conn.status == 400
     assert %{"error" => "invalid_name"} = json_response(conn, 400)
+  end
+
+  test "POST rejects a query string via the endpoint-wide API rules" do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/scenes?foo=bar", Jason.encode!(valid_scene()))
+
+    assert conn.status == 400
+    assert %{"error" => error} = json_response(conn, 400)
+    assert error =~ "query parameters"
+  end
+
+  test "POST rejects reserved underscore fields via the endpoint-wide API rules" do
+    scene = Map.put(valid_scene(), "_method", "delete")
+    conn = post_scene(build_conn(), scene)
+
+    assert conn.status == 400
+    assert %{"error" => "reserved field"} = json_response(conn, 400)
+  end
+
+  test "40 concurrent POSTs of one name yield exactly one 201", %{dir: dir} do
+    name = "race_scene"
+
+    tasks =
+      for i <- 1..40 do
+        Task.async(fn ->
+          post_scene(build_conn(), %{valid_scene() | "name" => name, "description" => "c#{i}"})
+        end)
+      end
+
+    statuses = tasks |> Enum.map(&Task.await/1) |> Enum.map(& &1.status)
+
+    assert Enum.count(statuses, &(&1 == 201)) == 1
+    assert Enum.count(statuses, &(&1 == 409)) == 39
+    assert length(Chronos.SceneStore.list()) == 1
   end
 
   defp post_scene(conn, scene) do

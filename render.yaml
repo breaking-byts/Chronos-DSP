@@ -38,3 +38,15 @@ services:
         value: C.UTF-8
       # PORT is intentionally not set: Render injects it and the release binds
       # to it (config/runtime.exs reads PORT, default 4000).
+      #
+      # Named scenes are ephemeral by default (inside the release; lost on
+      # redeploy). To persist them, attach a Render disk and set SCENE_DIR to
+      # its mount path, e.g.:
+      #   disk:
+      #     name: chronos-scenes
+      #     mountPath: /data/scenes
+      #     sizeGB: 1
+      #   - key: SCENE_DIR
+      #     value: /data/scenes
+      # Keep numInstances at 1: scene write locks do not span instances.
+      # See docs/DEPLOYMENT.md "Named scenes (ephemeral)" and ADR 0001.

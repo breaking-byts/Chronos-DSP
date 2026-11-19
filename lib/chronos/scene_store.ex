@@ -1,23 +1,38 @@
 defmodule Chronos.SceneStore do
   @moduledoc """
-  File-backed store for named user scenes.
+  File-backed store for named user scenes — ephemeral by design (ADR 0001).
 
   A scene is a map with:
 
     * `"name"` - the file stem, restricted to `[a-z0-9_-]`, 1..64 chars;
-    * `"description"` - optional free text;
+    * `"description"` - optional free text, at most 1 KiB;
     * `"nodes"` - list of `%{id, type ("tx"|"rx"), pos: [x,y,z], vel: [x,y,z]}`;
-    * `"walls"` - list of `%{id, vertices: [[x,y,z],...], normal: [x,y,z],
-      attenuation_db: number, material: optional string id}`.
+    * `"walls"` - list of `%{id, vertices: [[x,y,z],...] (3..256), normal:
+      [x,y,z], attenuation_db: optional non-negative number, material: optional
+      catalogue id}`.
 
-  Node and wall ids are limited to 64 characters. Each scene may contain at
-  most 1024 nodes and 1024 walls.
+  Node and wall ids are limited to 64 characters; each scene may contain at
+  most 1024 nodes and 1024 walls. Walls carry a `Chronos.Material` id; an
+  explicit `attenuation_db` overrides only the reflection loss (and only when
+  finite and non-negative), while transmission and diffraction always come
+  from the material.
+
+  Storage is capped for the anonymous public showcase: at most 100 scenes,
+  10 MiB total, and 64 KiB per scene. Writing beyond a cap evicts the oldest
+  scenes first (by file modification time; an overwrite refreshes a scene's
+  modification time). Orphaned temporary files and invalid JSON are cleaned up
+  on write. Any visitor may delete any scene (single-tenant showcase, no
+  ownership — ADR 0001).
 
   Scenes are stored as pretty JSON, one file per scene, in a configurable
-  directory (default: Application env `:chronos`, `:scene_dir`, falling back to
-  `"priv/scenes"` relative to the app root).
+  directory (Application env `:chronos`, `:scene_dir`; `SCENE_DIR` at runtime;
+  default `priv/scenes` under the app root). The default lives inside the
+  release, so scenes are lost on redeploy unless `SCENE_DIR` points at a
+  persistent volume. `list/0` re-reads and re-validates every file (O(N),
+  bounded by the 100-scene cap); caching is a performance-track follow-up.
   """
 
+  alias Chronos.Material
   alias Chronos.World
 
   @type scene :: map()
@@ -26,27 +41,14 @@ defmodule Chronos.SceneStore do
   @node_types ["tx", "rx"]
   @max_id_length 64
   @max_scene_items 1024
-
-  # Concrete is the material catalogue's default and has a 6 dB reflection
-  # loss. This is also the fallback used by the built-in `wall_y` scenario.
-  @default_attenuation_db 6.0
-
-  # The material catalogue lives in another feature slice. Keep an equivalent
-  # fallback here so persisted scenes remain portable while that module is
-  # unavailable; when it is loaded, reflection_loss_db/1 is authoritative.
-  @material_reflection_losses %{
-    "brick" => 4.0,
-    "concrete" => 6.0,
-    "drywall" => 2.0,
-    "glass" => 1.0,
-    "metal" => 0.5,
-    "plaster" => 3.0,
-    "plywood" => 3.5,
-    "reinforced_concrete" => 8.0,
-    "soil" => 5.0,
-    "water" => 2.0,
-    "wood" => 3.0
-  }
+  @max_vertices 256
+  @max_description_bytes 1024
+  @max_scene_bytes 64 * 1024
+  @max_scenes 100
+  # Defensive backstop: at 100 scenes x 64 KiB the count cap binds first
+  # (~6.25 MiB < 10 MiB), so the total cap rarely evicts on its own.
+  @max_total_bytes 10 * 1024 * 1024
+  @material_ids Enum.map(Material.ids(), &Atom.to_string/1)
 
   @doc """
   Lists every stored scene sorted by name.
@@ -58,23 +60,15 @@ defmodule Chronos.SceneStore do
   def list do
     dir = scene_dir()
 
-    case File.ls(dir) do
-      {:ok, entries} ->
-        entries
-        |> Enum.filter(&String.ends_with?(&1, ".json"))
-        |> Enum.map(&Path.rootname/1)
-        |> Enum.filter(&valid_name?/1)
-        |> Enum.flat_map(fn name ->
-          case get(name) do
-            {:ok, scene} -> [scene]
-            _error -> []
-          end
-        end)
-        |> Enum.sort_by(&Map.get(&1, "name", ""))
-
-      {:error, _reason} ->
-        []
-    end
+    dir
+    |> scene_names()
+    |> Enum.flat_map(fn name ->
+      case get(name) do
+        {:ok, scene} -> [scene]
+        _error -> []
+      end
+    end)
+    |> Enum.sort_by(&Map.get(&1, "name", ""))
   end
 
   @doc """
@@ -94,47 +88,60 @@ defmodule Chronos.SceneStore do
   @doc """
   Creates a validated scene when its name is not already in use.
 
-  Creation is serialized per scene name, so concurrent callers cannot both
-  create the same name. The persisted scene is read back before it is
-  returned, so the response always represents the complete file on disk.
+  Writes are serialized per directory, so concurrent callers cannot both
+  create the same name and the storage caps are enforced atomically. The
+  persisted scene is read back before it is returned, so the response always
+  represents the complete file on disk. Creating beyond a cap evicts the
+  oldest scenes (by modification time).
   """
   @spec create(scene()) ::
           {:ok, scene()}
           | {:error, :invalid_scene | :invalid_name | :name_taken | File.posix()}
   def create(scene) do
-    with {:ok, name} <- scene_name(scene),
-         :ok <- validate(scene),
-         dir = scene_dir(),
-         :ok <- ensure_scene_dir(dir),
-         {:ok, body} <- encode_scene(scene) do
-      :global.trans(create_lock_id(dir, name), fn ->
-        create_scene(dir, name, body)
-      end)
+    with {:ok, dir, name, body} <- prepare_scene(scene) do
+      :global.trans(dir_lock_id(dir), fn -> create_scene(dir, name, body) end)
     end
   end
 
   @doc """
-  Persists a validated scene.
+  Persists a validated scene, replacing any existing file with the same name.
 
-  The scene is written to a unique sibling temporary file and atomically
-  renamed into place. Existing files are replaced.
+  Like `create/1` this enforces the per-scene byte cap and evicts oldest
+  scenes when a cap would be exceeded (the scene's own name is excluded from
+  the count, since it is being replaced). The scene is written to a unique
+  sibling temporary file and atomically renamed into place.
   """
   @spec save(scene()) :: :ok | {:error, :invalid_scene | :invalid_name | File.posix()}
   def save(scene) do
-    with {:ok, name} <- scene_name(scene),
-         :ok <- validate(scene) do
-      dir = scene_dir()
+    with {:ok, dir, name, body} <- prepare_scene(scene) do
+      :global.trans(dir_lock_id(dir), fn ->
+        cleanup_orphans(dir)
 
-      with :ok <- ensure_scene_dir(dir) do
-        write_scene(dir, name, scene)
-      end
+        with :ok <- make_room(dir, name, byte_size(body)) do
+          write_json(dir, name, body)
+        end
+      end)
+    end
+  end
+
+  # Shared create/save pipeline: validate, resolve the directory, encode, and
+  # enforce the per-scene byte cap before taking the directory lock.
+  defp prepare_scene(scene) do
+    with {:ok, name} <- scene_name(scene),
+         :ok <- validate(scene),
+         dir = scene_dir(),
+         :ok <- ensure_scene_dir(dir),
+         {:ok, body} <- encode_scene(scene),
+         :ok <- check_scene_size(body) do
+      {:ok, dir, name, body}
     end
   end
 
   @doc """
   Deletes a stored scene.
 
-  Returns `{:error, :not_found}` when the scene does not exist.
+  Returns `{:error, :not_found}` when the scene does not exist. Any visitor
+  may delete any scene (single-tenant showcase, no ownership — ADR 0001).
   """
   @spec delete(String.t()) :: :ok | {:error, :not_found | :invalid_name | File.posix()}
   def delete(name) do
@@ -167,9 +174,11 @@ defmodule Chronos.SceneStore do
   Builds a `Chronos.World` from a valid scene.
 
   Existing atoms are reused for ids when possible; otherwise ids remain
-  strings, so untrusted scene data never grows the atom table. A missing wall
-  attenuation uses the material's reflection loss, or 6 dB for concrete and
-  unknown materials.
+  strings, so untrusted scene data never grows the atom table. Each wall
+  carries its `Chronos.Material` id (validated against the catalogue; the
+  `Material.get/1` concrete fallback is defense-in-depth). `attenuation_db` is
+  the explicit reflection override, or `nil` when the material's own reflection
+  loss applies.
   """
   @spec scene_to_world(scene()) :: {:ok, World.t()} | {:error, :invalid_scene}
   def scene_to_world(scene) do
@@ -225,10 +234,8 @@ defmodule Chronos.SceneStore do
     end
   end
 
-  defp write_scene(dir, name, scene) do
-    with {:ok, body} <- encode_scene(scene) do
-      write_json(dir, name, body)
-    end
+  defp check_scene_size(body) do
+    if byte_size(body) <= @max_scene_bytes, do: :ok, else: {:error, :invalid_scene}
   end
 
   defp write_json(dir, name, body) do
@@ -258,26 +265,134 @@ defmodule Chronos.SceneStore do
   end
 
   defp create_scene(dir, name, body) do
+    cleanup_orphans(dir)
     path = scene_path(dir, name)
 
     if File.exists?(path) do
       {:error, :name_taken}
     else
-      case write_json(dir, name, body) do
-        :ok ->
-          case read_scene(path) do
-            {:ok, scene} -> {:ok, scene}
-            {:error, _reason} -> {:error, :invalid_scene}
-          end
+      with :ok <- make_room(dir, name, byte_size(body)) do
+        case write_json(dir, name, body) do
+          :ok ->
+            case read_scene(path) do
+              {:ok, scene} -> {:ok, scene}
+              {:error, _reason} -> {:error, :invalid_scene}
+            end
 
-        {:error, reason} ->
-          {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     end
   end
 
-  defp create_lock_id(dir, name) do
-    {{__MODULE__, Path.expand(dir), name}, self()}
+  # Writes are serialized per directory so the count/byte caps and the
+  # name-uniqueness check are atomic across concurrent callers. :global.trans
+  # takes {ResourceId, OwnerPid}: the resource {Module, dir} is shared across
+  # processes (this is what gives mutual exclusion), while self() is the
+  # per-caller lock owner. Do NOT drop self() (a bare/1-tuple is not a valid
+  # lock id and raises FunctionClauseError) and do NOT put self() inside the
+  # resource (that would make every caller lock a different resource).
+  # Verified empirically: 40 concurrent callers -> at most 1 inside.
+  defp dir_lock_id(dir) do
+    {{__MODULE__, Path.expand(dir)}, self()}
+  end
+
+  # Evict oldest scenes (by mtime) until adding `new_bytes` for `name`
+  # fits both the scene-count and total-byte caps. `name` is excluded from the
+  # existing entries so an overwrite does not count itself.
+  defp make_room(dir, name, new_bytes) do
+    entries =
+      dir
+      |> scene_files()
+      |> Enum.reject(&(&1.name == name))
+
+    evict(dir, entries, new_bytes)
+  end
+
+  defp evict(dir, entries, new_bytes) do
+    count = length(entries)
+    total = Enum.sum(Enum.map(entries, & &1.size))
+
+    if count + 1 <= @max_scenes and total + new_bytes <= @max_total_bytes do
+      :ok
+    else
+      case oldest(entries) do
+        nil ->
+          :ok
+
+        entry ->
+          _ = File.rm(entry.path)
+          evict(dir, List.delete(entries, entry), new_bytes)
+      end
+    end
+  end
+
+  defp oldest([]), do: nil
+  defp oldest(entries), do: Enum.min_by(entries, & &1.mtime)
+
+  # Valid scene stems present in the directory.
+  defp scene_names(dir) do
+    case File.ls(dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.map(&Path.rootname/1)
+        |> Enum.filter(&valid_name?/1)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp scene_files(dir) do
+    dir
+    |> scene_names()
+    |> Enum.flat_map(fn name ->
+      path = scene_path(dir, name)
+
+      case File.stat(path, time: :posix) do
+        {:ok, %File.Stat{size: size, mtime: mtime}} ->
+          [%{name: name, path: path, size: size, mtime: mtime}]
+
+        {:error, _reason} ->
+          []
+      end
+    end)
+  end
+
+  # Remove crash-orphaned temporary files and any .json that is not a valid
+  # stored scene (unparseable or schema-invalid). Since create/save only write
+  # validated scenes, such files are corrupt or tampered and would otherwise
+  # count against the caps while remaining invisible to list/0 (ghost scenes).
+  defp cleanup_orphans(dir) do
+    case File.ls(dir) do
+      {:ok, names} ->
+        Enum.each(names, fn entry ->
+          path = Path.join(dir, entry)
+
+          cond do
+            String.contains?(entry, ".tmp.") ->
+              _ = File.rm(path)
+
+            String.ends_with?(entry, ".json") ->
+              remove_invalid_scene(path)
+
+            true ->
+              :ok
+          end
+        end)
+
+      {:error, _reason} ->
+        :ok
+    end
+  end
+
+  defp remove_invalid_scene(path) do
+    case read_scene(path) do
+      {:ok, _scene} -> :ok
+      {:error, _reason} -> _ = File.rm(path)
+    end
   end
 
   defp read_scene(path) do
@@ -330,7 +445,10 @@ defmodule Chronos.SceneStore do
   defp valid_scene?(_scene), do: false
 
   defp valid_description?(nil), do: true
-  defp valid_description?(description), do: is_binary(description)
+
+  defp valid_description?(description) do
+    is_binary(description) and byte_size(description) <= @max_description_bytes
+  end
 
   defp valid_node?(%{"id" => id, "type" => type, "pos" => pos, "vel" => vel}) do
     valid_id?(id) and type in @node_types and vec3?(pos) and vec3?(vel)
@@ -357,16 +475,17 @@ defmodule Chronos.SceneStore do
   defp valid_id?(_id), do: false
 
   defp valid_vertices?(vertices) when is_list(vertices) do
-    length(vertices) >= 3 and Enum.all?(vertices, &vec3?/1)
+    length(vertices) >= 3 and length(vertices) <= @max_vertices and
+      Enum.all?(vertices, &vec3?/1)
   end
 
   defp valid_vertices?(_vertices), do: false
 
   defp valid_attenuation?(nil), do: true
-  defp valid_attenuation?(value), do: is_number(value)
+  defp valid_attenuation?(value), do: is_number(value) and value >= 0
 
   defp valid_material?(nil), do: true
-  defp valid_material?(value), do: is_binary(value)
+  defp valid_material?(value), do: is_binary(value) and value in @material_ids
 
   defp vec3?([x, y, z]), do: is_number(x) and is_number(y) and is_number(z)
   defp vec3?(_other), do: false
@@ -410,11 +529,14 @@ defmodule Chronos.SceneStore do
   end
 
   defp build_wall(%{"id" => id, "vertices" => vertices, "normal" => normal} = wall) do
+    material = Material.get(Map.get(wall, "material"))
+
     %World.Wall{
       id: to_id(id),
       vertices: Enum.map(vertices, &list_to_vec/1),
       normal: list_to_vec(normal),
-      attenuation_db: wall_attenuation_db(wall)
+      material: material.id,
+      attenuation_db: Map.get(wall, "attenuation_db")
     }
   end
 
@@ -430,33 +552,4 @@ defmodule Chronos.SceneStore do
   rescue
     ArgumentError -> value
   end
-
-  defp wall_attenuation_db(%{"attenuation_db" => attenuation_db})
-       when is_number(attenuation_db),
-       do: attenuation_db
-
-  defp wall_attenuation_db(wall) do
-    material_reflection_loss_db(Map.get(wall, "material"))
-  end
-
-  defp material_reflection_loss_db(material) do
-    module = Chronos.Material
-
-    if Code.ensure_loaded?(module) and function_exported?(module, :reflection_loss_db, 1) do
-      case apply(module, :reflection_loss_db, [%{attenuation_db: nil, material: material}]) do
-        loss when is_number(loss) -> loss
-        _other -> @default_attenuation_db
-      end
-    else
-      fallback_material_reflection_loss_db(material)
-    end
-  rescue
-    _error -> fallback_material_reflection_loss_db(material)
-  end
-
-  defp fallback_material_reflection_loss_db(material) when is_binary(material) do
-    Map.get(@material_reflection_losses, material, @default_attenuation_db)
-  end
-
-  defp fallback_material_reflection_loss_db(_material), do: @default_attenuation_db
 end

@@ -46,6 +46,16 @@ primary_region = "iad"
     timeout = "5s"
     path = "/readyz"
 
+# Named scenes are ephemeral by default (stored inside the release; lost on
+# redeploy). To persist them, attach a volume and point SCENE_DIR at it:
+#   [mounts]
+#     source = "chronos_scenes"
+#     destination = "/data/scenes"
+#   [env]
+#     SCENE_DIR = "/data/scenes"
+# Keep a single machine: :global scene write locks do not span unclustered
+# machines. See docs/DEPLOYMENT.md "Named scenes (ephemeral)" and ADR 0001.
+
 [[vm]]
   memory = "512mb"
   cpu_kind = "shared"

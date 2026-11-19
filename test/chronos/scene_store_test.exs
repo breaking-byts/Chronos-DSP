@@ -1,6 +1,7 @@
 defmodule Chronos.SceneStoreTest do
   use ExUnit.Case, async: false
 
+  alias Chronos.Material
   alias Chronos.SceneStore
   alias Chronos.World
 
@@ -146,8 +147,9 @@ defmodule Chronos.SceneStoreTest do
     assert wall.id == wall_id
     assert wall.vertices == [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}]
     assert wall.normal == {0.0, 0.0, 1.0}
-    assert wall.attenuation_db == 6.0
-    refute Map.has_key?(wall, :material)
+    assert wall.material == :concrete
+    assert wall.attenuation_db == nil
+    assert Material.reflection_loss_db(wall) == 6.0
   end
 
   test "wall attenuation uses the material reflection loss unless explicitly overridden" do
@@ -159,15 +161,22 @@ defmodule Chronos.SceneStoreTest do
     wall_id = hd(material_scene["walls"])["id"]
 
     assert {:ok, world} = SceneStore.scene_to_world(material_scene)
-    assert World.wall(world, wall_id).attenuation_db == 0.5
-    refute Map.has_key?(World.wall(world, wall_id), :material)
+    metal_wall = World.wall(world, wall_id)
+    assert metal_wall.material == :metal
+    assert metal_wall.attenuation_db == nil
+    assert Material.reflection_loss_db(metal_wall) == 0.5
+    assert Material.transmission_loss_db(metal_wall) == 40.0
 
     override_scene =
       material_scene
       |> put_in(["walls", Access.at(0), "attenuation_db"], 12.5)
 
     assert {:ok, overridden_world} = SceneStore.scene_to_world(override_scene)
-    assert World.wall(overridden_world, wall_id).attenuation_db == 12.5
+    overridden_wall = World.wall(overridden_world, wall_id)
+    assert overridden_wall.attenuation_db == 12.5
+    assert overridden_wall.material == :metal
+    assert Material.reflection_loss_db(overridden_wall) == 12.5
+    assert Material.transmission_loss_db(overridden_wall) == 40.0
   end
 
   test "scene_to_world keeps fresh string ids without growing the atom table" do
@@ -224,6 +233,70 @@ defmodule Chronos.SceneStoreTest do
     assert :ok = SceneStore.save(valid_scene())
     assert File.exists?(Path.join(other_dir, "lab_scene.json"))
     refute File.exists?(Path.join(original_dir, "lab_scene.json"))
+  end
+
+  test "validate rejects negative attenuation, unknown materials, and oversized fields" do
+    scene = valid_scene()
+
+    negative = put_in(scene, ["walls", Access.at(0), "attenuation_db"], -1.0)
+    unknown_material = put_in(scene, ["walls", Access.at(0), "material"], "unobtanium")
+    long_description = %{scene | "description" => String.duplicate("x", 1025)}
+
+    too_many_vertices =
+      put_in(
+        scene,
+        ["walls", Access.at(0), "vertices"],
+        Enum.map(1..257, fn i -> [i * 1.0, 0.0, 0.0] end)
+      )
+
+    for invalid <- [negative, unknown_material, long_description, too_many_vertices] do
+      assert {:error, :invalid_scene} = SceneStore.validate(invalid)
+    end
+  end
+
+  test "create rejects a scene whose stored JSON exceeds the per-scene byte cap" do
+    node = hd(valid_scene()["nodes"])
+
+    big = %{
+      valid_scene()
+      | "nodes" =>
+          Enum.map(1..1024, fn i ->
+            %{node | "id" => "node_#{String.duplicate("x", 50)}_#{i}"}
+          end)
+    }
+
+    assert {:error, :invalid_scene} = SceneStore.create(big)
+  end
+
+  test "create evicts the oldest scene when the count cap is reached", %{dir: dir} do
+    for i <- 0..99 do
+      name = "cap_#{String.pad_leading(Integer.to_string(i), 3, "0")}"
+      assert {:ok, _scene} = SceneStore.create(valid_scene(name))
+    end
+
+    assert length(SceneStore.list()) == 100
+
+    # Make one scene definitively the oldest, then create beyond the cap.
+    File.touch!(Path.join(dir, "cap_042.json"), 1_000_000)
+    assert {:ok, _scene} = SceneStore.create(valid_scene("cap_new"))
+
+    scenes = Enum.map(SceneStore.list(), & &1["name"])
+    assert length(scenes) == 100
+    refute "cap_042" in scenes
+    assert "cap_new" in scenes
+  end
+
+  test "create cleans orphaned temp files and unparseable or schema-invalid JSON", %{dir: dir} do
+    assert {:ok, _scene} = SceneStore.create(valid_scene())
+    File.write!(Path.join(dir, "lab_scene.tmp.123.456"), "orphan")
+    File.write!(Path.join(dir, "broken.json"), "{not valid json")
+    File.write!(Path.join(dir, "ghost.json"), Jason.encode!([]))
+
+    assert {:ok, _scene} = SceneStore.create(valid_scene("second_scene"))
+
+    assert Path.wildcard(Path.join(dir, "*.tmp.*")) == []
+    refute File.exists?(Path.join(dir, "broken.json"))
+    refute File.exists?(Path.join(dir, "ghost.json"))
   end
 
   defp valid_scene(name \\ "lab_scene") do

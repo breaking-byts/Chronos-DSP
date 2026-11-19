@@ -3,6 +3,20 @@ import Config
 runtime_env = System.get_env("RUNTIME_ENV") || Atom.to_string(config_env())
 config :chronos, :runtime_env, runtime_env
 
+# Named-scene store directory. Defaults to priv/scenes inside the release
+# (ephemeral — lost on redeploy). Point SCENE_DIR at a persistent volume to
+# survive redeploys; see docs/DEPLOYMENT.md and ADR 0001.
+case System.get_env("SCENE_DIR") do
+  nil ->
+    :ok
+
+  value ->
+    case String.trim(value) do
+      "" -> :ok
+      trimmed -> config :chronos, :scene_dir, trimmed
+    end
+end
+
 if config_env() == :prod do
   # ---------------------------------------------------------------------------
   # Environment helpers
