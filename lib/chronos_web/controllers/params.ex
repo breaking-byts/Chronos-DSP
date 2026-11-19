@@ -1,17 +1,24 @@
-defmodule ChronosWeb.SimulationParams do
+defmodule ChronosWeb.ApiParams do
   @moduledoc """
-  Shared helpers for requests handled by the stateless simulation endpoint.
+  Shared request rules for the anonymous JSON API (`/api/*`).
+
+  Write requests (POST/PUT/PATCH/DELETE) take their parameters from the JSON
+  body only: query strings are rejected so Phoenix internals such as `_format`
+  and `_method` can never ride in on the query string, and a query value can
+  never satisfy a required body field. Reserved `_`-prefixed fields are
+  rejected in both body and query on every API request. These rules run at the
+  endpoint, before `Plug.MethodOverride` and the router's format negotiation,
+  so every current and future `/api/*` route inherits them.
   """
 
-  @simulation_path ["api", "simulate"]
-
   @doc false
-  @spec simulation_request?(Plug.Conn.t()) :: boolean()
-  def simulation_request?(%Plug.Conn{method: "POST", path_info: path_info}) do
-    decode_path_info(path_info) == @simulation_path
+  @spec api_request?(Plug.Conn.t()) :: boolean()
+  def api_request?(%Plug.Conn{path_info: path_info}) do
+    case decode_path_info(path_info) do
+      ["api" | _] -> true
+      _ -> false
+    end
   end
-
-  def simulation_request?(%Plug.Conn{}), do: false
 
   defp decode_path_info(path_info) do
     Enum.map(path_info, &URI.decode/1)
@@ -20,14 +27,14 @@ defmodule ChronosWeb.SimulationParams do
   end
 end
 
-defmodule ChronosWeb.SimulationParams.JSONParser do
+defmodule ChronosWeb.ApiParams.JSONParser do
   @moduledoc """
-  JSON parser that lets the simulation endpoint format malformed-body errors.
+  JSON parser that lets API endpoints format malformed-body errors.
 
   Phoenix's standard JSON parser raises before a controller can respond. For
-  requests to the simulation endpoint, malformed JSON is retained as an
-  internal sentinel so the controller can return its uniform JSON error shape.
-  Other paths retain Phoenix's standard parser behavior.
+  requests under `/api/*`, malformed JSON is retained as an internal sentinel
+  so controllers can return the uniform JSON error shape. Other paths retain
+  Phoenix's standard parser behavior.
 
   Route matching uses decoded path segments, matching Phoenix router behavior
   for percent-encoded paths.
@@ -42,7 +49,7 @@ defmodule ChronosWeb.SimulationParams.JSONParser do
   @spec init(keyword()) :: term()
   def init(opts), do: Plug.Parsers.JSON.init(opts)
 
-  @doc "Parses JSON and retains malformed simulation requests as a sentinel."
+  @doc "Parses JSON and retains malformed API requests as a sentinel."
   @impl Plug.Parsers
   @spec parse(Plug.Conn.t(), binary(), binary(), list(), term()) ::
           {:ok, map(), Plug.Conn.t()}
@@ -52,7 +59,7 @@ defmodule ChronosWeb.SimulationParams.JSONParser do
     Plug.Parsers.JSON.parse(conn, type, subtype, headers, opts)
   rescue
     error in Plug.Parsers.ParseError ->
-      if ChronosWeb.SimulationParams.simulation_request?(conn) do
+      if ChronosWeb.ApiParams.api_request?(conn) do
         {:ok, %{@invalid_key => {:invalid_json, Exception.message(error)}}, conn}
       else
         reraise error, __STACKTRACE__
@@ -66,36 +73,60 @@ defmodule ChronosWeb.SimulationParams.JSONParser do
   end
 end
 
-defmodule ChronosWeb.SimulationParams.ReservedFieldPlug do
+defmodule ChronosWeb.ApiParams.RequestPlug do
   @moduledoc """
-  Rejects reserved request-body fields before Phoenix can consume them.
+  Enforces the JSON API request rules before Phoenix can consume internals.
+
+  Runs at the endpoint ahead of `Plug.MethodOverride` and format negotiation:
+  write methods reject any query string, and reserved `_`-prefixed fields are
+  rejected in body and query alike. GET/HEAD keep query parameters (the export
+  and scene-list endpoints use them) but still reject reserved fields.
   """
 
   @behaviour Plug
+
+  @write_methods ~w(POST PUT PATCH DELETE)
 
   @impl true
   def init(opts), do: opts
 
   @impl true
   def call(conn, _opts) do
-    if ChronosWeb.SimulationParams.simulation_request?(conn) and
-         reserved_field?(conn.body_params) do
-      conn
-      |> Plug.Conn.put_status(:bad_request)
-      |> Phoenix.Controller.json(%{error: "reserved field"})
-      |> Plug.Conn.halt()
+    if ChronosWeb.ApiParams.api_request?(conn) do
+      conn = Plug.Conn.fetch_query_params(conn)
+
+      cond do
+        conn.method in @write_methods and conn.query_string != "" ->
+          reject(
+            conn,
+            "query parameters are not accepted on #{conn.method} requests; send a JSON body"
+          )
+
+        reserved_field?(conn.body_params) or reserved_field?(conn.query_params) ->
+          reject(conn, "reserved field")
+
+        true ->
+          conn
+      end
     else
       conn
     end
   end
 
+  defp reject(conn, message) do
+    conn
+    |> Plug.Conn.put_status(:bad_request)
+    |> Phoenix.Controller.json(%{error: message})
+    |> Plug.Conn.halt()
+  end
+
   defp reserved_field?(%Plug.Conn.Unfetched{}), do: false
 
-  defp reserved_field?(body_params) when is_map(body_params) do
-    Enum.any?(body_params, fn {key, _value} ->
+  defp reserved_field?(params) when is_map(params) do
+    Enum.any?(params, fn {key, _value} ->
       is_binary(key) and String.starts_with?(key, "_")
     end)
   end
 
-  defp reserved_field?(_body_params), do: false
+  defp reserved_field?(_params), do: false
 end

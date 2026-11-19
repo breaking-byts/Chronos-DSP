@@ -5,6 +5,9 @@ defmodule Chronos.SimFrame do
   A frame contains the scene geometry, every LOS/reflection path for display,
   the latest link metrics, and a small DSP snapshot (constellation, waveform,
   spectrum) for the first receiver.
+
+  The JSON API reuses `metrics_and_dsp/2` to compute only the metrics and DSP
+  snapshot, without the scene encoding or the display-path pass.
   """
 
   alias Chronos.Channel
@@ -50,12 +53,9 @@ defmodule Chronos.SimFrame do
   @spec from_world(World.t(), keyword()) :: frame()
   def from_world(%World{} = world, opts) do
     tick = Keyword.fetch!(opts, :tick)
-    seed = Keyword.get(opts, :seed, 1)
-    sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
-    noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
     bounds = Keyword.get_lazy(opts, :bounds, fn -> Scene.bounds(world) end)
 
-    {metrics, dsp} = build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
+    {metrics, dsp} = metrics_and_dsp(world, opts)
 
     %{
       tick: tick,
@@ -69,6 +69,22 @@ defmodule Chronos.SimFrame do
       metrics: metrics,
       dsp: dsp
     }
+  end
+
+  @doc """
+  Computes only the link metrics and DSP snapshot for the first receiver.
+
+  Skips scene encoding and the display-path pass, so JSON API responses do not
+  pay for geometry they never return. Takes the same options as `from_world/2`:
+  `:tick` is required; `:seed`, `:sample_rate`, and `:noise_power` are optional.
+  """
+  @spec metrics_and_dsp(World.t(), keyword()) :: {map(), map()}
+  def metrics_and_dsp(%World{} = world, opts) do
+    tick = Keyword.fetch!(opts, :tick)
+    seed = Keyword.get(opts, :seed, 1)
+    sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
+    noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
+    build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
   end
 
   # The dashboard draws the same paths the DSP renders, so the display paths

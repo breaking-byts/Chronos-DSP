@@ -106,6 +106,35 @@ mix compile        # Rustler builds the NIF here
 mix phx.server
 ```
 
+## JSON API
+
+`POST /api/simulate` runs a built-in scenario headlessly and returns its
+metrics and a DSP snapshot. Parameters come from the JSON body only — query
+strings are rejected on mutating `/api/*` requests, and top-level fields
+starting with `_` are reserved (this closes Phoenix's `_method`/`_format`
+overrides). The body must be `application/json` and at most 8 MB.
+
+| Field | Type | Range | Default |
+| --- | --- | --- | --- |
+| `tick` | integer | 0–1,000,000 | required |
+| `scenario` | string | `orbit`, `open_field` | `orbit` |
+| `seed` | integer | 0–4,294,967,295 | `1` |
+| `sample_rate` | number | 1,000–1,000,000 | `48000` |
+| `noise_power` | number | 0–1 | `0.01` |
+
+```bash
+curl -s localhost:4000/api/simulate \
+  -H 'content-type: application/json' \
+  -d '{"tick": 10, "scenario": "orbit", "seed": 7}'
+```
+
+The response is `{tick, time_s, metrics, dsp}`: `metrics` carries `ber`,
+`path_count`, `received_power`, and `rx_id`; `dsp` carries `constellation`
+(128 `[re, im]` pairs), `waveform` (128 real samples), and `spectrum` (64
+magnitudes). Errors use a uniform `{"error": message}` JSON shape for 400,
+404, 406, and 413; browsers that send `Accept: text/html` still receive HTML
+error pages. There is no authentication or rate limiting yet.
+
 ## Tests and checks
 
 ```bash
@@ -120,11 +149,12 @@ mix format --check-formatted
 bin/profile                               # throughput profile script
 ```
 
-The Elixir suite has 195 tests and the Rust crate has 2. The Elixir suite
+The Elixir suite has 222 tests and the Rust crate has 2. The Elixir suite
 includes channel/scenario geometry, the material catalogue and
 multi-bounce/diffraction/transmission models, uniform option validation, DSP
 reference and NIF parity, packing, modem, scene bounds, frame/server/supervisor
-behavior, LiveView controls, and health endpoints.
+behavior, LiveView controls, the headless JSON API and its uniform error
+shapes, and health endpoints.
 
 ## Docker
 

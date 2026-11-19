@@ -7,7 +7,7 @@ defmodule ChronosWeb.SimulationController do
 
   alias Chronos.Scenario
   alias Chronos.SimFrame
-  alias ChronosWeb.SimulationParams.JSONParser
+  alias ChronosWeb.ApiParams.JSONParser
 
   @default_scenario "orbit"
   @default_seed 1
@@ -31,6 +31,9 @@ defmodule ChronosWeb.SimulationController do
   return `400` with `{"error":"reserved field"}`. This deliberately rejects
   Phoenix's `_method` and `_format` parameters instead of allowing them to
   alter routing or content negotiation.
+
+  Query strings are rejected on this endpoint: parameters come from the JSON
+  body only (see `ChronosWeb.ApiParams.RequestPlug`).
   """
   @spec simulate(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def simulate(conn, params) do
@@ -53,8 +56,8 @@ defmodule ChronosWeb.SimulationController do
         world
       end
 
-    frame =
-      SimFrame.from_world(world,
+    {metrics, dsp} =
+      SimFrame.metrics_and_dsp(world,
         tick: options.tick,
         seed: options.seed,
         sample_rate: options.sample_rate,
@@ -62,10 +65,10 @@ defmodule ChronosWeb.SimulationController do
       )
 
     json(conn, %{
-      tick: frame.tick,
-      time_s: frame.time_s,
-      metrics: frame.metrics,
-      dsp: frame.dsp
+      tick: options.tick,
+      time_s: world.time_s,
+      metrics: metrics,
+      dsp: dsp
     })
   end
 

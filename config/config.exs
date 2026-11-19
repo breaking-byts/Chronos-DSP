@@ -10,7 +10,10 @@ config :chronos,
 config :chronos, ChronosWeb.Endpoint,
   url: [host: "localhost"],
   http: [ip: {127, 0, 0, 1}, port: 4000],
-  render_errors: [formats: [html: ChronosWeb.ErrorHTML], layout: false],
+  render_errors: [
+    formats: [json: ChronosWeb.ErrorJSON, html: ChronosWeb.ErrorHTML],
+    layout: false
+  ],
   pubsub_server: Chronos.PubSub,
   live_view: [signing_salt: "dev_live_view_signing_salt"],
   session_options: [

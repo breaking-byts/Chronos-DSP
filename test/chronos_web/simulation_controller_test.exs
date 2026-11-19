@@ -195,6 +195,155 @@ defmodule ChronosWeb.SimulationControllerTest do
     end
   end
 
+  test "query strings are rejected on the POST endpoint", %{conn: conn} do
+    for query <- ["?tick=0", "?_format=html", "?_method=get", "?foo=bar"] do
+      conn =
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/simulate" <> query, Jason.encode!(%{tick: 0}))
+
+      assert conn.status == 400
+      assert %{"error" => error} = Jason.decode!(conn.resp_body)
+      assert error =~ "query parameters"
+      assert ["application/json" <> _] = get_resp_header(conn, "content-type")
+    end
+  end
+
+  test "a query tick cannot satisfy the required body field", %{conn: conn} do
+    conn =
+      conn
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/simulate?tick=0", "{}")
+
+    assert conn.status == 400
+    assert %{"error" => error} = Jason.decode!(conn.resp_body)
+    assert error =~ "query parameters"
+  end
+
+  test "reserved fields in the query string are rejected on GET", %{conn: conn} do
+    conn = get(conn, "/api/simulate?_format=html")
+    assert conn.status == 400
+    assert %{"error" => "reserved field"} = Jason.decode!(conn.resp_body)
+  end
+
+  test "unknown API paths return a JSON 404", %{conn: conn} do
+    conn = get(conn, "/api/missing")
+    assert conn.status == 404
+    assert %{"error" => "Not Found"} = Jason.decode!(conn.resp_body)
+    assert ["application/json" <> _] = get_resp_header(conn, "content-type")
+  end
+
+  test "a wrong method on the simulation path returns a JSON error", %{conn: conn} do
+    conn = get(conn, "/api/simulate")
+    assert conn.status == 404
+    assert %{"error" => "Not Found"} = Jason.decode!(conn.resp_body)
+    assert ["application/json" <> _] = get_resp_header(conn, "content-type")
+  end
+
+  test "an unsupported non-HTML Accept header returns a JSON 406" do
+    # RenderErrors renders the response and then reraises non-NoRouteError
+    # exceptions, so ConnTest surfaces the raise; exercise the real test
+    # server to assert what an actual client receives. json is the first
+    # render_errors fallback format, so non-HTML API clients get JSON.
+    {status, headers, body} =
+      http_post("/api/simulate", Jason.encode!(%{tick: 0}), [{"accept", "application/xml"}])
+
+    assert status == 406
+    assert {_, "application/json" <> _} = List.keyfind(headers, "content-type", 0)
+    assert %{"error" => "Not Acceptable"} = Jason.decode!(body)
+  end
+
+  test "a browser Accept header still gets an HTML 406 error page" do
+    {status, headers, _body} =
+      http_post("/api/simulate", Jason.encode!(%{tick: 0}), [{"accept", "text/html"}])
+
+    assert status == 406
+    assert {_, "text/html" <> _} = List.keyfind(headers, "content-type", 0)
+  end
+
+  test "an oversized body returns a JSON 413" do
+    body = Jason.encode!(%{tick: 0, pad: String.duplicate("x", 8_400_000)})
+
+    {status, headers, resp_body} =
+      http_post("/api/simulate", body, [{"accept", "application/json"}])
+
+    assert status == 413
+    assert {_, "application/json" <> _} = List.keyfind(headers, "content-type", 0)
+    assert %{"error" => error} = Jason.decode!(resp_body)
+    assert is_binary(error)
+  end
+
+  defp http_post(path, body, headers) do
+    {:ok, sock} =
+      :gen_tcp.connect(~c"127.0.0.1", 4001, [:binary, active: false, packet: :raw])
+
+    extra = Enum.map_join(headers, "", fn {k, v} -> "#{k}: #{v}\r\n" end)
+
+    request =
+      "POST #{path} HTTP/1.1\r\n" <>
+        "Host: 127.0.0.1:4001\r\n" <>
+        "Content-Type: application/json\r\n" <>
+        extra <>
+        "Content-Length: #{byte_size(body)}\r\n" <>
+        "Connection: close\r\n\r\n" <> body
+
+    # The server may answer (e.g. 413) and close before reading the whole
+    # body; tolerate a closed socket while sending and still read the reply.
+    send_request(sock, request)
+    response = recv_response(sock, [])
+    :gen_tcp.close(sock)
+    parse_response(response)
+  end
+
+  defp send_request(_sock, <<>>), do: :ok
+
+  defp send_request(sock, data) do
+    size = min(byte_size(data), 65_536)
+    chunk = binary_part(data, 0, size)
+    rest = binary_part(data, size, byte_size(data) - size)
+
+    case :gen_tcp.send(sock, chunk) do
+      :ok -> send_request(sock, rest)
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp recv_response(sock, acc) do
+    data = IO.iodata_to_binary(acc)
+
+    if complete_response?(data) do
+      data
+    else
+      case :gen_tcp.recv(sock, 0, 2_000) do
+        {:ok, more} -> recv_response(sock, [acc, more])
+        {:error, _reason} -> data
+      end
+    end
+  end
+
+  defp complete_response?(data) do
+    with [head, body] <- String.split(data, "\r\n\r\n", parts: 2),
+         [_, length] <- Regex.run(~r/content-length:\s*(\d+)/i, head) do
+      byte_size(body) >= String.to_integer(length)
+    else
+      _ -> false
+    end
+  end
+
+  defp parse_response(response) do
+    [head, body] = String.split(response, "\r\n\r\n", parts: 2)
+    [status_line | header_lines] = String.split(head, "\r\n")
+    [_http, status, _reason] = String.split(status_line, " ", parts: 3)
+
+    headers =
+      Enum.map(header_lines, fn line ->
+        [k, v] = String.split(line, ":", parts: 2)
+        {String.downcase(String.trim(k)), String.trim(v)}
+      end)
+
+    {String.to_integer(status), headers, body}
+  end
+
   defp decode_payload(conn), do: Jason.decode!(conn.resp_body)
 
   defp post_json(conn, payload) do

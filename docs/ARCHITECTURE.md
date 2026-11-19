@@ -159,6 +159,12 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
   draws on `requestAnimationFrame`. ECharts updates are coalesced per frame.
 - `/healthz` and `/readyz` use the `:api` pipeline; `/` is a LiveView in the
   `:browser` pipeline with CSRF protection and secure headers.
+- `POST /api/simulate` is a stateless JSON endpoint in the `:api` pipeline.
+  `ChronosWeb.ApiParams` parses JSON bodies, rejects query strings on mutating
+  `/api/*` requests and reserved `_`-prefixed fields, and runs before
+  `Plug.MethodOverride`. Errors render through `ChronosWeb.ErrorJSON`
+  (`{"error": message}`) with JSON as the default fallback format; HTML error
+  pages are kept for browsers.
 - Production defaults to forced SSL with HSTS
   (`FORCE_SSL=true`/`PHX_SCHEME=https`). `/healthz` and `/readyz` are excluded
   from the redirect so internal probes work; `FORCE_SSL=false` is available for
