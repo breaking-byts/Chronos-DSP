@@ -25,6 +25,50 @@ defmodule ChronosWeb.ApiParams do
   rescue
     ArgumentError -> path_info
   end
+
+  @max_seed 4_294_967_295
+
+  @doc """
+  The unsigned 32-bit ceiling for API noise seeds. `Chronos.SimFrame` mixes the
+  tick into the seed before passing it to the native renderer's unsigned 64-bit
+  seed, so capping the seed at `u32` keeps `seed + tick` in range. Shared by the
+  simulation and export controllers.
+  """
+  @spec max_seed() :: pos_integer()
+  def max_seed, do: @max_seed
+
+  @doc """
+  Parses an optional integer query parameter within `[minimum, maximum]`.
+
+  Query parameters arrive as strings (GET endpoints), so this full-consumption
+  `Integer.parse/1` guard is the query-string counterpart to the JSON-body
+  integer guards in `ChronosWeb.SimulationController`. Returns `{:ok, value}`
+  (the default when absent) or `{:error, message}`.
+  """
+  @spec parse_query_integer(map(), String.t(), integer(), integer(), integer()) ::
+          {:ok, integer()} | {:error, String.t()}
+  def parse_query_integer(params, key, default, minimum, maximum) do
+    case Map.get(params, key) do
+      nil ->
+        {:ok, default}
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {integer, ""} when integer >= minimum and integer <= maximum ->
+            {:ok, integer}
+
+          _ ->
+            {:error, invalid_integer_message(key, minimum, maximum)}
+        end
+
+      _ ->
+        {:error, invalid_integer_message(key, minimum, maximum)}
+    end
+  end
+
+  defp invalid_integer_message(key, minimum, maximum) do
+    "invalid #{key}: expected an integer between #{minimum} and #{maximum}"
+  end
 end
 
 defmodule ChronosWeb.ApiParams.JSONParser do

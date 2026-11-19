@@ -10,9 +10,10 @@ defmodule ChronosWeb.SimulationController do
   alias ChronosWeb.ApiParams.JSONParser
 
   @default_scenario "orbit"
+  @scenario_ids Scenario.ids()
   @default_seed 1
   @max_tick 1_000_000
-  @max_seed 4_294_967_295
+  @max_seed ChronosWeb.ApiParams.max_seed()
   @default_sample_rate 48_000.0
   @default_noise_power 0.01
   @min_sample_rate 1_000.0
@@ -136,8 +137,8 @@ defmodule ChronosWeb.SimulationController do
 
   defp validate_scenario(params) do
     case Map.get(params, "scenario", @default_scenario) do
-      scenario when scenario in ["orbit", "open_field"] -> {:ok, scenario}
-      _other -> {:error, "scenario must be one of: orbit, open_field"}
+      scenario when scenario in @scenario_ids -> {:ok, scenario}
+      _other -> {:error, "scenario must be one of: #{Enum.join(@scenario_ids, ", ")}"}
     end
   end
 

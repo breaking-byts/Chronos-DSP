@@ -135,6 +135,33 @@ magnitudes). Errors use a uniform `{"error": message}` JSON shape for 400,
 404, 406, and 413; browsers that send `Accept: text/html` still receive HTML
 error pages. There is no authentication or rate limiting yet.
 
+## CSV export
+
+Three read-only, CSV-only endpoints (`Accept: text/csv`) export simulation
+results. Parameters come from the query string; errors use the same
+`{"error": message}` JSON shape as the JSON API, and a JSON `Accept` header
+returns 406. There is no authentication or rate limiting yet.
+
+| Endpoint | Returns | Key parameters |
+| --- | --- | --- |
+| `GET /api/export/metrics` | one metrics row | `ticks` 0–100000 (default 0), `seed`, `scenario` |
+| `GET /api/export/history` | one row per sampled tick | `from`/`to` 0–100000 (defaults 0/100), `step` ≥ 1 (default 1), ≤ 1000 rows, `seed`, `scenario` |
+| `GET /api/export/samples` | first receiver's complex samples | `ticks`, `seed`, `scenario`, `limit` 1–512 (default 128) |
+
+`scenario` is `orbit` (default) or `open_field`; `seed` is 0–4294967295. Each
+tick advances the scenario by 0.1 s. History steps the world incrementally from
+`from`, so its cost is bounded by `to` rather than re-simulating from zero per
+row. Metrics CSV columns are `tick,time_s,rx_id,path_count,received_power,ber`;
+samples CSV columns are `index,re,im`.
+
+```bash
+curl -s 'localhost:4000/api/export/history?from=0&to=50&step=5&scenario=orbit' \
+  -H 'accept: text/csv'
+```
+
+Scene-snapshot export and a UI export button are planned follow-ups (they pair
+with the scene store and interactive-editing tracks).
+
 ## Tests and checks
 
 ```bash
@@ -149,12 +176,12 @@ mix format --check-formatted
 bin/profile                               # throughput profile script
 ```
 
-The Elixir suite has 222 tests and the Rust crate has 2. The Elixir suite
+The Elixir suite has 245 tests and the Rust crate has 2. The Elixir suite
 includes channel/scenario geometry, the material catalogue and
 multi-bounce/diffraction/transmission models, uniform option validation, DSP
 reference and NIF parity, packing, modem, scene bounds, frame/server/supervisor
-behavior, LiveView controls, the headless JSON API and its uniform error
-shapes, and health endpoints.
+behavior, LiveView controls, the headless JSON API, CSV export
+(metrics/history/samples) and their uniform error shapes, and health endpoints.
 
 ## Docker
 

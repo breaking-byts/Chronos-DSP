@@ -32,13 +32,18 @@ dashboard renders a top-down XY view.
 | `Chronos.Sim` | Renders one complex block per receiver, packing that receiver's paths. |
 | `Chronos.Modem` | QPSK modulation/demodulation and BER. |
 | `Chronos.Metrics` | Mean complex power and bounded history. |
+| `Chronos.Export` | Deterministic RFC 4180 CSV formatting for metrics rows and complex samples. |
 | `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
-| `Chronos.SimFrame` | JSON-safe frame: tick, time, bounds, nodes, walls, display paths, metrics, DSP snapshot. |
+| `Chronos.SimFrame` | JSON-safe frame (`from_world/2`); `metrics_and_dsp/2` (API) and `metrics/2` (CSV export) skip scene/display geometry; `default_tx_block/1` is the shared deterministic QPSK test block. |
 | `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. |
 | `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
 | `Chronos.Runtime` | App version, build/runtime env, NIF status, timestamp, uptime for health JSON. |
 | `ChronosWeb.SimLive` | LiveView that starts/stops a session and pushes frames to two hooks. |
 | `ChronosWeb.HealthController` | `/healthz` and `/readyz`. |
+| `ChronosWeb.SimulationController` | `POST /api/simulate`: stateless JSON metrics + DSP snapshot. |
+| `ChronosWeb.ExportController` | `GET /api/export/{metrics,history,samples}`: CSV-only export. |
+| `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + query-integer validation. |
+| `ChronosWeb.ErrorJSON` | Uniform `{"error": message}` JSON error rendering. |
 | `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
 
 ## Supervision tree
@@ -165,6 +170,11 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
   `Plug.MethodOverride`. Errors render through `ChronosWeb.ErrorJSON`
   (`{"error": message}`) with JSON as the default fallback format; HTML error
   pages are kept for browsers.
+- `GET /api/export/{metrics,history,samples}` are read-only CSV endpoints in the
+  `:export` pipeline (CSV-only negotiation). They reuse `SimFrame.metrics/2`
+  (no DSP snapshot) and source the scenario whitelist from `Scenario.ids/0`.
+  History steps the world incrementally and caps output at 1000 rows; errors
+  share the uniform JSON shape.
 - Production defaults to forced SSL with HSTS
   (`FORCE_SSL=true`/`PHX_SCHEME=https`). `/healthz` and `/readyz` are excluded
   from the redirect so internal probes work; `FORCE_SSL=false` is available for
@@ -180,3 +190,11 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
   not the rendered layout.
 - Per-connection sessions are in-memory only. There is no persistence,
   authentication, or multi-user collaboration.
+- CSV export is CPU-bound and anonymous, with no rate limiting yet. Metrics and
+  samples re-simulate from t=0 per request (the orbit kinematics are not
+  expressible as one big step without changing the floating-point trajectory);
+  samples renders all receivers and keeps the first. History steps incrementally
+  and caps output at 1000 rows, but a worst-case range (`to=100000`, `step=100`)
+  still does ~100k steps plus 1000 render passes. Bounds: ticks 0..100000,
+  history rows ≤ 1000, samples limit 1..512. Caching stepped worlds and
+  first-receiver-only rendering are performance-track candidates (see #25).
