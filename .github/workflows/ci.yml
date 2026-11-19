@@ -58,8 +58,8 @@ jobs:
       - name: Compile (warnings as errors)
         run: mix compile --warnings-as-errors
 
-      - name: Test
-        run: mix test
+      - name: Test (coverage gate >= 80%)
+        run: mix coveralls
 
   rust:
     name: Rust

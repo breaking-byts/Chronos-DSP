@@ -186,7 +186,7 @@ curl -s localhost:4000/api/scenes -H 'content-type: application/json' \
 ## Tests and checks
 
 ```bash
-mix test                                  # Elixir test suite
+MIX_ENV=test mix coveralls                # Elixir suite + coverage gate (>= 80%)
 (cd native/chronos_dsp && cargo test)     # Rust unit tests
 bin/test                                  # both of the above
 
@@ -197,13 +197,22 @@ mix format --check-formatted
 bin/profile                               # throughput profile script
 ```
 
-The Elixir suite has 275 tests and the Rust crate has 2. The Elixir suite
-includes channel/scenario geometry, the material catalogue and
-multi-bounce/diffraction/transmission models, uniform option validation, DSP
-reference and NIF parity, packing, modem, scene bounds, frame/server/supervisor
-behavior, LiveView controls, the headless JSON API, CSV export
-(metrics/history/samples), the capped named-scene store, and their uniform
-error shapes, and health endpoints.
+The Elixir suite has 316 tests (including 28 StreamData property tests) and the
+Rust crate has 4. The Elixir suite includes channel/scenario geometry, the
+material catalogue and multi-bounce/diffraction/transmission models, uniform
+option validation, DSP reference and NIF parity, packing, modem, scene bounds,
+frame/server/supervisor behavior, LiveView controls, the headless JSON API, CSV
+export (metrics/history/samples), the capped named-scene store, and their
+uniform error shapes, and health endpoints. Property tests cover packing
+round-trips and binary-decoder fuzzing, geometry invariants, scene bounds, and
+channel-option validation. Coverage is gated at 80% via ExCoveralls
+(`coveralls.json`), enforced in CI and `bin/test`.
+
+Telemetry: render timing (`chronos.sim.render`), session lifecycle
+(`chronos.session`), and `/api/*` request metrics (`chronos.api.request`) are
+emitted as `:telemetry` events and logged through the stdlib Logger with
+structured metadata (no JSON-formatter dependency). See the Telemetry section
+in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Docker
 
@@ -267,13 +276,16 @@ force SSL, and does not require secrets.
 
 ```text
 lib/chronos/              channel, geometry, world, scenarios, DSP, packing,
-                          modem, metrics, scene projection, frames, supervision
-lib/chronos_web/          endpoint, router, health controller, LiveView, layout
-native/chronos_dsp/       Rust crate (rustler NIF, 2 unit tests)
+                          modem, metrics, scene projection, frames, supervision,
+                          telemetry logging
+lib/chronos_web/          endpoint, router, health controller, LiveView, layout,
+                          API telemetry plug
+native/chronos_dsp/       Rust crate (rustler NIF, 4 unit tests)
 priv/static/              app.js (LiveView hooks), app.css, vendored ECharts
 config/                   compile-time and runtime configuration
 test/                     ExUnit suites for channel, DSP, geometry, modem,
-                          packing, scene, frames, server, LiveView, health
+                          packing, scene, frames, server, LiveView, health,
+                          telemetry, plus StreamData property tests
 docs/                     architecture, deployment, operations, security, plans
 bin/                      setup, test, profile helpers
 ```

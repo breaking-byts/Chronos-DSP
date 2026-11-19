@@ -68,12 +68,33 @@ defmodule Chronos.SimServer do
       tick_ms: clamp(Keyword.get(opts, :tick_ms, @default_tick_ms), 20, 2_000),
       noise_power: clamp(Keyword.get(opts, :noise_power, @default_noise_power), 0.0, 1.0),
       sample_rate: Keyword.get(opts, :sample_rate, @default_sample_rate),
-      owner: Keyword.get(opts, :owner)
+      owner: Keyword.get(opts, :owner),
+      started_at: System.monotonic_time()
     }
 
     if is_pid(state.owner), do: Process.monitor(state.owner)
 
+    :telemetry.execute(
+      [:chronos, :session, :start],
+      %{system_time: System.system_time()},
+      %{scenario: state.scenario, session: self(), custom_world: state.custom_world}
+    )
+
     {:ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    :telemetry.execute(
+      [:chronos, :session, :stop],
+      %{
+        system_time: System.system_time(),
+        duration: System.monotonic_time() - state.started_at
+      },
+      %{scenario: state.scenario, session: self()}
+    )
+
+    :ok
   end
 
   @impl true

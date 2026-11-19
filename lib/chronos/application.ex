@@ -3,6 +3,7 @@ defmodule Chronos.Application do
 
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :started_at_monotonic_s}, System.monotonic_time(:second))
+    Chronos.Telemetry.attach()
 
     children = [
       {Phoenix.PubSub, name: Chronos.PubSub},

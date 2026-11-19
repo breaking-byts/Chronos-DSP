@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- StreamData property tests (`test/chronos/*_property_test.exs`): packing
+  round-trips (exact for float32-representable samples, float32 tolerance for
+  arbitrary float64) and decoder fuzz over arbitrary bytes, geometry
+  invariants (convex-polygon containment, boundary inclusion, segment
+  symmetry, reflection involution), scene-bounds containment, and
+  `Channel.Physics.validate_opts!/1` valid/invalid option fuzz.
+- Coverage gate: ExCoveralls with a minimum of 80% total coverage
+  (`coveralls.json`, `mix coveralls` in CI and `bin/test`); the NIF
+  declaration module is excluded from coverage.
+- Telemetry events with structured Logger-metadata logging (no JSON-formatter
+  dependency): `[:chronos, :sim, :render, :start/:stop/:exception]` around
+  `Chronos.Sim.render/3`, `[:chronos, :session, :start/:stop]` for
+  `Chronos.SimServer` lifecycle, and `[:chronos, :api, :request, :start/:stop]`
+  for `/api/*` requests via the new halt-safe `ChronosWeb.TelemetryPlug`.
+  `Chronos.Telemetry.attach/0` (idempotent) is called from
+  `Chronos.Application.start/2`; see the Telemetry section in
+  docs/ARCHITECTURE.md.
 - `Chronos.Material`: a material catalogue (brick, concrete, drywall, glass,
   metal, wood, plaster, plywood, reinforced concrete, soil, water) with
   reflection, transmission, and diffraction losses in dB. Walls now carry a
@@ -69,6 +86,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disabled per call.
 - `Chronos.SimFrame` builds its display paths from `Chronos.Channel` instead
   of duplicating the geometry code.
+
+### Fixed
+
+- `Chronos.Packing.unpack_complex/1` and `unpack_paths/1` no longer crash on
+  well-sized binaries containing non-finite float bit patterns (±inf, NaN):
+  such payloads return `{:error, :invalid_binary}` (non-finite float terms
+  are unconstructible on this OTP), matching the Rust decoder's never-crash
+  behavior on arbitrary bytes.
+- `Chronos.Geometry.segment_plane_intersect/4` is now symmetric in its two
+  endpoints: an intersection beyond either endpoint is `:outside` (it was
+  `:behind` in one direction and `:outside` in the other). Callers only
+  branch on `{:ok, point, t}`, so path results are unchanged.
 
 ## [0.2.0] - 2026-10-28
 

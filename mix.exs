@@ -9,7 +9,8 @@ defmodule Chronos.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       releases: releases(),
-      deps: deps()
+      deps: deps(),
+      test_coverage: [tool: ExCoveralls]
     ]
   end
 
@@ -38,7 +39,10 @@ defmodule Chronos.MixProject do
       {:phoenix_html, "~> 3.3"},
       {:plug_cowboy, "~> 2.6"},
       {:jason, "~> 1.4"},
-      {:floki, ">= 0.30.0", only: :test}
+      {:telemetry, "~> 1.0"},
+      {:floki, ">= 0.30.0", only: :test},
+      {:stream_data, "~> 1.1", only: :test},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 

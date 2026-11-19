@@ -162,7 +162,7 @@ defmodule ChronosWeb.SceneControllerTest do
     assert %{"error" => "reserved field"} = json_response(conn, 400)
   end
 
-  test "40 concurrent POSTs of one name yield exactly one 201", %{dir: dir} do
+  test "40 concurrent POSTs of one name yield exactly one 201", %{dir: _dir} do
     name = "race_scene"
 
     tasks =
