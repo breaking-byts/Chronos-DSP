@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a capability or improvement for the simulator, API, or tooling.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Chronos-DSP is a single-tenant public showcase with teaching-first,
+        honest physics
+        ([ADR 0001](https://github.com/breaking-byts/Chronos-DSP/blob/master/docs/adr/0001-public-showcase-posture.md)):
+        no auth, capped ephemeral scenes, knife-edge diffraction (not UTD), and
+        illustrative material values. Proposals that need auth, multi-user
+        isolation, or durable storage are explicitly revisiting that decision.
+
+        Use the vocabulary in
+        [GLOSSARY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/GLOSSARY.md)
+        (scene, scenario, path, material, bounce order) rather than synonyms.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve, and who hits it (visitor, operator, contributor)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the capability. Name the affected area (channel model, DSP, API, dashboard, deployment, tooling).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why this one wins.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How would we verify this is done? Tests, API shape, docs, bounds.
+    validations:
+      required: false
+  - type: checkboxes
+    id: posture
+    attributes:
+      label: Showcase posture
+      options:
+        - label: >
+            This keeps the single-tenant, no-auth showcase posture (ADR 0001),
+            or explicitly proposes revisiting it.
+          required: true
+        - label: >
+            This makes no calibrated-physics claims (knife-edge is not UTD;
+            material values are illustrative).
+          required: false

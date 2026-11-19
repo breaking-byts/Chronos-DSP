@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - Unreleased
 
 ### Added
 
@@ -61,6 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scenes, 10 MiB total, 64 KiB/scene, 1 KiB descriptions, 256 vertices/wall)
   with oldest-first eviction and orphan cleanup; ephemeral by default (ADR 0001),
   `SCENE_DIR` for a persistent volume.
+- Release smoke test (`bin/smoke`): boots a fresh build (docker image, an
+  existing image, or `--local` mix release) and verifies NIF-loaded readiness
+  (`/readyz` with `require_nif=true`), `/healthz`, the dashboard HTML, and
+  static assets. The release workflow's `smoke` job runs it against the
+  just-pushed amd64 image and gates the GitHub Release.
+- Contributor documentation: `CONTRIBUTING.md` (setup, checks, PR
+  expectations), GitHub issue forms (bug/feature) with `needs-triage` labels
+  and a contact-links config, a pull-request template, and an expanded
+  `GLOSSARY.md` (scene store, eviction, telemetry event, coverage gate,
+  property test, smoke test).
 
 ### Changed
 

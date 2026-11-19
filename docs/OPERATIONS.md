@@ -6,10 +6,10 @@
 mix deps.get
 mix compile --warnings-as-errors
 
-mix test
+MIX_ENV=test mix coveralls    # Elixir suite + >=80% coverage gate
 (cd native/chronos_dsp && cargo test)
 
-bin/test          # Elixir + Rust suites
+bin/test          # both of the above (coveralls gate + Rust)
 bin/profile       # throughput profile (scripts/profile.exs)
 ```
 

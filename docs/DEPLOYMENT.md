@@ -51,6 +51,7 @@ so a typo cannot take the node down.
 | `PHX_URL_PORT` | no | `443` if SSL is forced, else `PORT` | Public URL port; independent of the listen port. |
 | `RUNTIME_ENV` | no | `prod` | Free-form label in health JSON; useful for staging. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `notice`, `warning`/`warn`, `error`, or `critical`. |
+| `SCENE_DIR` | no | `priv/scenes` inside the release | Named-scene store directory. Ephemeral by default (ADR 0001); set to a persistent volume path to survive redeploys. See [Named scenes](#named-scenes-ephemeral). |
 | `ERLANG_ROOT` | no | Erlang root | Build-time base for Rustler include/lib paths. |
 | `ERL_EI_INCLUDE_DIR` | no | `$ERLANG_ROOT/usr/include` | Build-time override for Erlang headers. |
 | `ERL_EI_LIBDIR` | no | `$ERLANG_ROOT/usr/lib` | Build-time override for Erlang libraries. |
