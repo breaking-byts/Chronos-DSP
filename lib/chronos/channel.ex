@@ -25,6 +25,11 @@ defmodule Chronos.Channel do
     * `:max_paths` - hard cap on the paths returned per receiver (default `32`)
     * `:diffraction` - set to `false` to skip diffracted paths (default `true`)
     * `:transmission` - set to `false` to skip transmission paths (default `true`)
+    * `:tx_power` - transmit power in dBm, integer `0..30` (default `10`).
+      Scales every path gain by `10 ** ((tx_power - 10) / 20)`; the default
+      calibrates the one-metre unit-gain normalization and leaves gains
+      unchanged. Applied Elixir-side before packing, so the NIF and the
+      reference renderer see identical scaled paths.
 
   Paths are returned strongest first, so the cap keeps the paths that
   contribute the most energy.

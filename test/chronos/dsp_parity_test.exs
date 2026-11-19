@@ -2,10 +2,13 @@ defmodule Chronos.DSPParityTest do
   # Uses the native artifact and the :nif_loaded_override application env.
   use ExUnit.Case, async: false
 
+  alias Chronos.Channel
   alias Chronos.DSP
   alias Chronos.DSP.Native
   alias Chronos.DSP.Reference
   alias Chronos.Packing
+  alias Chronos.Scenario
+  alias Chronos.SimFrame
 
   @sample_rate 48_000.0
   # The reference works in f64 and the NIF in f32 for the sample path, so the
@@ -85,6 +88,33 @@ defmodule Chronos.DSPParityTest do
 
     assert DSP.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7) ==
              Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7)
+  end
+
+  test "tx_power-scaled channel paths keep native/reference parity" do
+    # tx_power scales the Elixir-computed path gains before packing, so both
+    # renderers consume identical scaled paths at every transmit power.
+    world = Scenario.world("open_field")
+    rx = world |> Chronos.World.nodes_by_type(:rx) |> hd()
+    {_bits, tx_bin} = SimFrame.default_tx_block(64)
+
+    for tx_power <- [0, 10, 30] do
+      paths = Channel.paths_for_rx!(world, rx.id, tx_power: tx_power)
+      paths_bin = Packing.pack_paths(Enum.map(paths, &Map.from_struct/1))
+
+      reference = Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7)
+
+      if native_available?() do
+        native = Native.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7)
+        assert_samples_close(native, reference)
+
+        assert_samples_close(
+          DSP.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7),
+          reference
+        )
+      else
+        assert DSP.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7) == reference
+      end
+    end
   end
 
   defp native_available? do

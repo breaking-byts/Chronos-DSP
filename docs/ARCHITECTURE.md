@@ -18,7 +18,7 @@ dashboard renders a top-down XY view.
 | `Chronos.World` | Immutable-by-replacement world state: `Node` (`:tx`/`:rx`) and planar `Wall` structs, lookup, and kinematic `step/2`. |
 | `Chronos.Geometry` | Vector, plane, reflection, polygon containment, and segment/polygon intersection math. |
 | `Chronos.Channel` | Orchestrates the four path models (LOS, reflections, diffraction, transmission) per receiver; occlusion tests; strongest-first path cap across all transmitters; shared-option validation. |
-| `Chronos.Channel.Physics` | Shared propagation conventions: free-space gain, dB conversion, path length, Doppler, finite guards, and `validate_opts!/1`. |
+| `Chronos.Channel.Physics` | Shared propagation conventions: free-space gain, dB conversion, transmit-power gain (`:tx_power`), path length, Doppler, finite guards, and `validate_opts!/1`. |
 | `Chronos.Channel.Path` | Path struct: delay/gain/Doppler plus kind, bounce order, polyline, and interactions. |
 | `Chronos.Channel.MultiBounce` | Image-source reflections over distinct-wall sequences up to `:max_bounces`, deduplicated before the cap. |
 | `Chronos.Channel.Diffraction` | ITU-R P.526-style knife-edge paths around blocking-wall edges. |
@@ -45,7 +45,7 @@ dashboard renders a top-down XY view.
 | `ChronosWeb.SimulationController` | `POST /api/simulate`: stateless JSON metrics + DSP snapshot. |
 | `ChronosWeb.ExportController` | `GET /api/export/{metrics,history,samples}`: CSV-only export. |
 | `ChronosWeb.SceneController` | `GET/POST/DELETE /api/scenes`: named-scene CRUD with uniform JSON errors. |
-| `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + query-integer validation. |
+| `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + tx-power bounds/validation + query-integer validation. |
 | `ChronosWeb.TelemetryPlug` | Emits `[:chronos, :api, :request]` start/stop events (duration, method, path, status) for `/api/*` requests; halt-safe. |
 | `ChronosWeb.ErrorJSON` | Uniform `{"error": message}` JSON error rendering. |
 | `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
@@ -100,8 +100,12 @@ tick are UI-local state.
 | Transmission | `Chronos.Channel.Transmission` | `kind: :transmission` through a blocking wall |
 
 - Free-space amplitude is `1 / distance`, normalized so a one-metre path has
-  unit gain. It is not a calibrated FSPL link budget (no antenna gains,
-  wavelength term, or transmit power).
+  unit gain. The `:tx_power` opt (integer `0..30` dBm, default `10`) is the
+  transmit-power term of the link budget: every path gain is multiplied by
+  `10 ** ((tx_power - 10) / 20)`, and the default calibrates the one-metre
+  unit-gain normalization, so default renders are unchanged. It is still not a
+  fully calibrated FSPL budget (no antenna gains or wavelength term; a
+  calibrated free-space reference is −40.05 dB at 1 m / 2.4 GHz).
 - A wall blocks the LOS path when the segment intersects its polygon. A point
   on the polygon boundary counts as inside the polygon, so a bounce or a
   transmission that lands exactly on an edge is a hit.
@@ -131,8 +135,21 @@ tick are UI-local state.
 - `Channel.paths_for_rx/3` caps the paths it returns (`:max_paths`, default 32)
   and keeps the strongest ones first. `:diffraction` and `:transmission` can be
   switched off per call.
-- Still missing: a frequency-selective channel, a calibrated link budget, and
-  height-aware 3D rendering.
+- **Opts note — `:tx_power`:** validated by `Physics.validate_opts!/1`
+  (integer `0..30` dBm; negatives, floats, and wrong types raise
+  `ArgumentError`) and applied in `Physics.path_gain/3` *before* paths are
+  packed for the DSP. Both the Rust NIF and the Elixir reference renderer
+  therefore consume identically scaled paths, so parity is preserved without
+  touching either renderer. Received power scales by
+  `10 ** ((tx_power - 10) / 10)`; the additive noise floor is unchanged. The
+  default `10` dBm anchors the existing unit-gain normalization, keeping all
+  golden/parity fixtures bit-identical. The API surface clamps to the same
+  range through `ChronosWeb.ApiParams` (`validate_tx_power/1` for the
+  `POST /api/simulate` JSON body; `parse_query_integer/5` with
+  `default_tx_power/0` and `tx_power_range/0` for the export query strings).
+- Still missing: a frequency-selective channel, a fully calibrated FSPL link
+  budget (antenna gains and the wavelength term), and height-aware 3D
+  rendering.
 
 ## DSP contract
 
@@ -171,12 +188,16 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
 - `POST /api/simulate` is a stateless JSON endpoint in the `:api` pipeline.
   `ChronosWeb.ApiParams` parses JSON bodies, rejects query strings on mutating
   `/api/*` requests and reserved `_`-prefixed fields, and runs before
-  `Plug.MethodOverride`. Errors render through `ChronosWeb.ErrorJSON`
+  `Plug.MethodOverride`. The optional `tx_power` body field (integer 0..30
+  dBm, default 10) is validated by `ApiParams.validate_tx_power/1` and scales
+  the rendered signal power. Errors render through `ChronosWeb.ErrorJSON`
   (`{"error": message}`) with JSON as the default fallback format; HTML error
   pages are kept for browsers.
 - `GET /api/export/{metrics,history,samples}` are read-only CSV endpoints in the
   `:export` pipeline (CSV-only negotiation). They reuse `SimFrame.metrics/2`
   (no DSP snapshot) and source the scenario whitelist from `Scenario.ids/0`.
+  All three accept the same `tx_power` query parameter (integer 0..30 dBm,
+  default 10) via `ApiParams.parse_query_integer/5`.
   History steps the world incrementally and caps output at 1000 rows; errors
   share the uniform JSON shape.
 - Production defaults to forced SSL with HSTS

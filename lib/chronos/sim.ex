@@ -3,6 +3,16 @@ defmodule Chronos.Sim do
   alias Chronos.Packing
   alias Chronos.World
 
+  @doc """
+  Renders one complex block per receiver.
+
+  Options: `:sample_rate` (default `48_000.0`), `:noise_power` (default `0.0`),
+  `:seed` (default `1`), and the channel opts forwarded to
+  `Channel.paths_for_rx!/3` — including `:tx_power` (integer `0..30` dBm,
+  default `10`), which scales the packed path gains before they reach the NIF
+  or the reference renderer. Invalid channel opts raise `ArgumentError` via
+  `Chronos.Channel.Physics.validate_opts!/1`.
+  """
   @spec render(World.t(), binary(), keyword()) :: map()
   def render(%World{} = world, tx_block, opts \\ []) do
     sample_rate = Keyword.get(opts, :sample_rate, 48_000.0)

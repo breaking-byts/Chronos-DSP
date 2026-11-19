@@ -106,6 +106,114 @@ defmodule ChronosWeb.ExportControllerTest do
     end
   end
 
+  test "invalid tx_power returns a JSON error on every export endpoint", %{conn: conn} do
+    for path <- ["/api/export/metrics", "/api/export/history", "/api/export/samples"],
+        tx_power <- ["-1", "31", "10.5", "abc"] do
+      response =
+        conn
+        |> put_req_header("accept", "text/csv")
+        |> get(path, %{"tx_power" => tx_power})
+
+      assert response.status == 400
+      assert ["application/json" <> _] = get_resp_header(response, "content-type")
+      assert %{"error" => error} = Jason.decode!(response.resp_body)
+      assert error =~ "tx_power"
+      assert error =~ "30"
+    end
+  end
+
+  test "explicit tx_power 10 keeps the golden samples row", %{conn: conn} do
+    conn =
+      conn
+      |> put_req_header("accept", "text/csv")
+      |> get("/api/export/samples", %{
+        "scenario" => "open_field",
+        "seed" => "7",
+        "ticks" => "2",
+        "limit" => "16",
+        "tx_power" => "10"
+      })
+
+    assert conn.status == 200
+    rows = String.split(conn.resp_body, "\n", trim: true)
+    assert hd(tl(rows)) == "0,-0.080927,-0.051775"
+  end
+
+  test "tx_power scales exported metrics and samples", %{conn: conn} do
+    powers =
+      for tx_power <- ["0", "10", "30"] do
+        response =
+          get(conn, "/api/export/metrics", %{
+            "scenario" => "open_field",
+            "seed" => "7",
+            "tx_power" => tx_power
+          })
+
+        assert response.status == 200
+        [_header, row] = String.split(response.resp_body, "\n", trim: true)
+        row |> String.split(",") |> Enum.at(4) |> String.to_float()
+      end
+
+    assert powers == Enum.sort(powers)
+    assert hd(powers) < List.last(powers)
+
+    # The first rendered sample is noise-only (the fractional path delay gives
+    # the signal zero weight at n=0), so the golden row survives any tx_power;
+    # the second sample carries signal and must scale.
+    samples_at = fn tx_power ->
+      response =
+        conn
+        |> put_req_header("accept", "text/csv")
+        |> get("/api/export/samples", %{
+          "scenario" => "open_field",
+          "seed" => "7",
+          "ticks" => "2",
+          "limit" => "16",
+          "tx_power" => tx_power
+        })
+
+      assert response.status == 200
+      String.split(response.resp_body, "\n", trim: true)
+    end
+
+    default_rows = samples_at.("10")
+    boosted_rows = samples_at.("30")
+
+    assert hd(tl(default_rows)) == "0,-0.080927,-0.051775"
+    assert hd(tl(boosted_rows)) == "0,-0.080927,-0.051775"
+    refute Enum.at(default_rows, 2) == Enum.at(boosted_rows, 2)
+  end
+
+  test "history rows match single-frame metrics at the same tx_power", %{conn: conn} do
+    history =
+      conn
+      |> put_req_header("accept", "text/csv")
+      |> get("/api/export/history", %{
+        "scenario" => "open_field",
+        "seed" => "7",
+        "from" => "1",
+        "to" => "2",
+        "step" => "1",
+        "tx_power" => "20"
+      })
+
+    assert history.status == 200
+    rows = history.resp_body |> String.split("\n", trim: true) |> tl()
+
+    for {row, tick} <- Enum.zip(rows, [1, 2]) do
+      single =
+        get(conn, "/api/export/metrics", %{
+          "scenario" => "open_field",
+          "seed" => "7",
+          "ticks" => Integer.to_string(tick),
+          "tx_power" => "20"
+        })
+
+      [_header, single_row] = String.split(single.resp_body, "\n", trim: true)
+      assert row == single_row
+    end
+  end
+
   test "maximum ticks and seed values are accepted", %{conn: conn} do
     response =
       get(conn, "/api/export/metrics", %{

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tx_power` channel opt (issue #33, interactive-editing slice 1): transmit
+  power in dBm, integer `0..30`, default `10`. Validated uniformly by
+  `Chronos.Channel.Physics.validate_opts!/1` (negatives, floats, out-of-range
+  integers, and wrong types raise `ArgumentError`) and clamped API-side via
+  `ChronosWeb.ApiParams`: a `tx_power` JSON-body field on `POST /api/simulate`
+  and a `tx_power` query parameter on all three CSV export endpoints. Every
+  path gain is scaled Elixir-side by `10 ** ((tx_power - 10) / 20)` in
+  `Physics.path_gain/3` before packing, so the Rust NIF and the Elixir
+  reference renderer consume identical scaled paths (parity preserved, no
+  renderer changes). Received power scales by `10 ** ((tx_power - 10) / 10)`
+  while the additive noise floor is unchanged. The default 10 dBm calibrates
+  the existing one-metre unit-gain normalization, so default renders —
+  including the golden samples CSV row — remain bit-identical; the link
+  budget is a relative one, still not a full FSPL calibration.
+
 - StreamData property tests (`test/chronos/*_property_test.exs`): packing
   round-trips (exact for float32-representable samples, float32 tolerance for
   arbitrary float64) and decoder fuzz over arbitrary bytes, geometry

@@ -7,6 +7,7 @@ defmodule ChronosWeb.SimulationController do
 
   alias Chronos.Scenario
   alias Chronos.SimFrame
+  alias ChronosWeb.ApiParams
   alias ChronosWeb.ApiParams.JSONParser
 
   @default_scenario "orbit"
@@ -16,6 +17,7 @@ defmodule ChronosWeb.SimulationController do
   @max_seed ChronosWeb.ApiParams.max_seed()
   @default_sample_rate 48_000.0
   @default_noise_power 0.01
+  @default_tx_power ApiParams.default_tx_power()
   @min_sample_rate 1_000.0
   @max_sample_rate 1_000_000.0
   @min_noise_power 0.0
@@ -26,7 +28,10 @@ defmodule ChronosWeb.SimulationController do
 
   `tick` must be an integer from `0` through `1_000_000`, and `seed` must be
   an integer from `0` through `4_294_967_295` (default `1`). Values outside
-  those ranges return a `400` response with a JSON error.
+  those ranges return a `400` response with a JSON error. `tx_power` is an
+  optional integer from `0` through `30` dBm (default `10`), validated by
+  `ChronosWeb.ApiParams.validate_tx_power/1`; it scales the rendered signal
+  power while leaving the noise floor unchanged.
 
   Top-level request-body fields whose names start with `_` are reserved and
   return `400` with `{"error":"reserved field"}`. This deliberately rejects
@@ -62,7 +67,8 @@ defmodule ChronosWeb.SimulationController do
         tick: options.tick,
         seed: options.seed,
         sample_rate: options.sample_rate,
-        noise_power: options.noise_power
+        noise_power: options.noise_power,
+        tx_power: options.tx_power
       )
 
     json(conn, %{
@@ -107,14 +113,16 @@ defmodule ChronosWeb.SimulationController do
          {:ok, scenario} <- validate_scenario(params),
          {:ok, seed} <- validate_seed(params),
          {:ok, sample_rate} <- validate_sample_rate(params),
-         {:ok, noise_power} <- validate_noise_power(params) do
+         {:ok, noise_power} <- validate_noise_power(params),
+         {:ok, tx_power} <- validate_tx_power(params) do
       {:ok,
        %{
          tick: tick,
          scenario: scenario,
          seed: seed,
          sample_rate: sample_rate,
-         noise_power: noise_power
+         noise_power: noise_power,
+         tx_power: tx_power
        }}
     end
   end
@@ -173,6 +181,10 @@ defmodule ChronosWeb.SimulationController do
     else
       {:error, "noise_power must be a number between 0.0 and 1.0"}
     end
+  end
+
+  defp validate_tx_power(params) do
+    ApiParams.validate_tx_power(Map.get(params, "tx_power", @default_tx_power))
   end
 
   defp bad_request(conn, message) do

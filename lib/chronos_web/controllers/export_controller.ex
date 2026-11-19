@@ -21,6 +21,7 @@ defmodule ChronosWeb.ExportController do
 
   @sample_rate 48_000.0
   @noise_power 0.01
+  @default_tx_power ApiParams.default_tx_power()
   @step_seconds 0.1
   @sample_count 512
   @scenario_ids Scenario.ids()
@@ -39,13 +40,19 @@ defmodule ChronosWeb.ExportController do
   The `seed` query parameter must be between 0 and #{@max_seed}. This keeps
   `seed + ticks` safely within the native DSP renderer's unsigned 64-bit
   seed range. The optional `scenario` is `orbit` (the default) or
-  `open_field`.
+  `open_field`. The optional `tx_power` is an integer between 0 and 30 dBm
+  (default #{@default_tx_power}); it scales the rendered signal power.
   """
   @spec metrics(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def metrics(conn, params) do
-    with {:ok, ticks, seed, scenario} <- parse_common_params(params) do
+    with {:ok, ticks, seed, scenario, tx_power} <- parse_common_params(params) do
       world = stepped_world(scenario, ticks)
-      send_csv(conn, Export.metrics_csv([metric_row(world, ticks, seed)]), "metrics.csv")
+
+      send_csv(
+        conn,
+        Export.metrics_csv([metric_row(world, ticks, seed, tx_power)]),
+        "metrics.csv"
+      )
     else
       {:error, message} -> send_error(conn, message)
     end
@@ -58,13 +65,13 @@ defmodule ChronosWeb.ExportController do
   100) with `to >= from`; `step` (1..#{@max_ticks}, default 1) selects every
   nth tick. At most #{@max_history_rows} rows are emitted. The world is stepped
   incrementally from `from`, so the cost is bounded by `to` rather than
-  re-simulating from zero for every row. `seed` and `scenario` match the
-  single-frame endpoints.
+  re-simulating from zero for every row. `seed`, `scenario`, and `tx_power`
+  match the single-frame endpoints.
   """
   @spec history(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def history(conn, params) do
-    with {:ok, from, to, step, seed, scenario} <- parse_history_params(params) do
-      rows = history_rows(scenario, from, to, step, seed)
+    with {:ok, from, to, step, seed, scenario, tx_power} <- parse_history_params(params) do
+      rows = history_rows(scenario, from, to, step, seed, tx_power)
       send_csv(conn, Export.metrics_csv(rows), "history.csv")
     else
       {:error, message} -> send_error(conn, message)
@@ -81,12 +88,13 @@ defmodule ChronosWeb.ExportController do
 
   The `seed` query parameter must be between 0 and #{@max_seed}. This keeps
   the native DSP renderer's seed within its unsigned 64-bit range. The
-  optional `scenario` is `orbit` (the default) or `open_field`, and `limit`
-  must be between 1 and 512.
+  optional `scenario` is `orbit` (the default) or `open_field`, `limit`
+  must be between 1 and 512, and `tx_power` is an integer between 0 and 30
+  dBm (default #{@default_tx_power}).
   """
   @spec samples(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def samples(conn, params) do
-    with {:ok, ticks, seed, scenario} <- parse_common_params(params),
+    with {:ok, ticks, seed, scenario, tx_power} <- parse_common_params(params),
          {:ok, limit} <- parse_limit(params) do
       world = stepped_world(scenario, ticks)
       rx = first_receiver(world)
@@ -95,7 +103,12 @@ defmodule ChronosWeb.ExportController do
 
       rx_block =
         world
-        |> Sim.render(tx_block, sample_rate: @sample_rate, noise_power: @noise_power, seed: seed)
+        |> Sim.render(tx_block,
+          sample_rate: @sample_rate,
+          noise_power: @noise_power,
+          seed: seed,
+          tx_power: tx_power
+        )
         |> Map.fetch!(rx.id)
 
       samples =
@@ -110,21 +123,29 @@ defmodule ChronosWeb.ExportController do
   end
 
   defp parse_common_params(params) do
+    {min_tx, max_tx} = ApiParams.tx_power_range()
+
     with {:ok, ticks} <- ApiParams.parse_query_integer(params, "ticks", 0, 0, @max_ticks),
          {:ok, seed} <- ApiParams.parse_query_integer(params, "seed", 1, 0, @max_seed),
-         {:ok, scenario} <- parse_scenario(params) do
-      {:ok, ticks, seed, scenario}
+         {:ok, scenario} <- parse_scenario(params),
+         {:ok, tx_power} <-
+           ApiParams.parse_query_integer(params, "tx_power", @default_tx_power, min_tx, max_tx) do
+      {:ok, ticks, seed, scenario, tx_power}
     end
   end
 
   defp parse_history_params(params) do
+    {min_tx, max_tx} = ApiParams.tx_power_range()
+
     with {:ok, from} <- ApiParams.parse_query_integer(params, "from", 0, 0, @max_ticks),
          {:ok, to} <- ApiParams.parse_query_integer(params, "to", 100, 0, @max_ticks),
          {:ok, step} <- ApiParams.parse_query_integer(params, "step", 1, 1, @max_ticks),
          {:ok, seed} <- ApiParams.parse_query_integer(params, "seed", 1, 0, @max_seed),
          {:ok, scenario} <- parse_scenario(params),
+         {:ok, tx_power} <-
+           ApiParams.parse_query_integer(params, "tx_power", @default_tx_power, min_tx, max_tx),
          :ok <- validate_history_range(from, to, step) do
-      {:ok, from, to, step, seed, scenario}
+      {:ok, from, to, step, seed, scenario, tx_power}
     end
   end
 
@@ -154,29 +175,30 @@ defmodule ChronosWeb.ExportController do
     end
   end
 
-  defp metric_row(world, tick, seed) do
+  defp metric_row(world, tick, seed, tx_power) do
     metrics =
       SimFrame.metrics(world,
         tick: tick,
         seed: seed,
         sample_rate: @sample_rate,
-        noise_power: @noise_power
+        noise_power: @noise_power,
+        tx_power: tx_power
       )
 
     Map.merge(metrics, %{tick: tick, time_s: world.time_s})
   end
 
-  defp history_rows(scenario, from, to, step, seed) do
+  defp history_rows(scenario, from, to, step, seed, tx_power) do
     world = stepped_world(scenario, from)
     ticks = Enum.to_list(from..to//step)
-    opts = %{scenario: scenario, step: step, seed: seed}
+    opts = %{scenario: scenario, step: step, seed: seed, tx_power: tx_power}
     collect_history(ticks, world, opts, [])
   end
 
   defp collect_history([], _world, _opts, acc), do: Enum.reverse(acc)
 
   defp collect_history([tick | rest], world, opts, acc) do
-    row = metric_row(world, tick, opts.seed)
+    row = metric_row(world, tick, opts.seed, opts.tx_power)
     next_world = if rest == [], do: world, else: step_ticks(world, opts.scenario, opts.step)
     collect_history(rest, next_world, opts, [row | acc])
   end

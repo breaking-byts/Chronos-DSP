@@ -34,8 +34,8 @@ defmodule Chronos.Channel.Diffraction do
 
     * `:diffraction` - set to `false` to disable diffraction (default `true`)
     * `:max_paths` - maximum number of paths to return (default `32`)
-    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
-      propagation options from `Chronos.Channel.Physics`
+    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain`, `:tx_power` - the
+      shared propagation options from `Chronos.Channel.Physics`
 
   Invalid option values raise `ArgumentError`
   (`Chronos.Channel.Physics.validate_opts!/1`).

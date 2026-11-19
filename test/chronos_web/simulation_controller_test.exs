@@ -150,6 +150,49 @@ defmodule ChronosWeb.SimulationControllerTest do
     end
   end
 
+  test "tx_power boundary values 0 and 30 are accepted", %{conn: conn} do
+    for tx_power <- [0, 30] do
+      conn = post_json(conn, %{tick: 0, tx_power: tx_power})
+
+      assert conn.status == 200
+      payload = Jason.decode!(conn.resp_body)
+      assert is_number(payload["metrics"]["received_power"])
+    end
+  end
+
+  test "the tx_power default matches explicit tx_power 10 exactly", %{conn: conn} do
+    request = %{tick: 2, scenario: "orbit", seed: 42, noise_power: 0.05}
+    default = conn |> post_json(request) |> decode_payload()
+    explicit = conn |> post_json(Map.put(request, :tx_power, 10)) |> decode_payload()
+
+    assert default["metrics"] == explicit["metrics"]
+    assert default["dsp"] == explicit["dsp"]
+  end
+
+  test "invalid tx_power values return a bad request error", %{conn: conn} do
+    for tx_power <- [-1, 31, 10.5, "10", nil] do
+      conn = post_json(conn, %{tick: 0, tx_power: tx_power})
+
+      assert conn.status == 400
+
+      assert %{"error" => "tx_power must be an integer between 0 and 30"} =
+               Jason.decode!(conn.resp_body)
+    end
+  end
+
+  test "tx_power scales received power consistently in the link budget", %{conn: conn} do
+    base = %{tick: 0, scenario: "open_field", noise_power: 0.0}
+    reference = conn |> post_json(Map.put(base, :tx_power, 10)) |> decode_payload()
+    boosted = conn |> post_json(Map.put(base, :tx_power, 20)) |> decode_payload()
+    cut = conn |> post_json(Map.put(base, :tx_power, 0)) |> decode_payload()
+
+    # +10 dB multiplies signal power by 10; -10 dB divides it by 10. With zero
+    # noise the metric is pure signal power (float32 rounding tolerance).
+    rp = reference["metrics"]["received_power"]
+    assert_in_delta boosted["metrics"]["received_power"], rp * 10.0, rp * 1.0e-4
+    assert_in_delta cut["metrics"]["received_power"], rp / 10.0, rp * 1.0e-4
+  end
+
   test "malformed JSON returns a bad request error", %{conn: conn} do
     conn = post_json(conn, "{not valid json")
 

@@ -31,6 +31,7 @@ defmodule Chronos.ChannelOptsPropertyTest do
           c <- StreamData.float(min: 1.0, max: 1.0e12),
           f <- StreamData.float(min: 1.0, max: 1.0e15),
           gain <- StreamData.float(min: -1.0e100, max: 1.0e100),
+          tx_power <- StreamData.integer(0..30),
           max_paths <- StreamData.integer(1..1000),
           max_bounces <- StreamData.integer(1..8),
           max_candidates <- StreamData.integer(1..1000),
@@ -40,6 +41,7 @@ defmodule Chronos.ChannelOptsPropertyTest do
         speed_of_light: c,
         carrier_freq_hz: f,
         global_gain: gain,
+        tx_power: tx_power,
         max_paths: max_paths,
         max_bounces: max_bounces,
         max_candidates: max_candidates,
@@ -57,6 +59,7 @@ defmodule Chronos.ChannelOptsPropertyTest do
   property "any subset of the optional keys still validates" do
     optional = [
       :global_gain,
+      :tx_power,
       :max_paths,
       :max_bounces,
       :max_candidates,
@@ -178,6 +181,50 @@ defmodule Chronos.ChannelOptsPropertyTest do
           ) do
       opts = [speed_of_light: c, carrier_freq_hz: f]
       assert Physics.validate_opts!(opts) == opts
+    end
+  end
+
+  property "tx_power boundary values 0 and 30 dBm are accepted" do
+    check all(tx_power <- StreamData.member_of([0, 30])) do
+      opts = [tx_power: tx_power]
+      assert Physics.validate_opts!(opts) == opts
+    end
+  end
+
+  property "any integer tx_power inside 0..30 dBm validates and passes through" do
+    check all(tx_power <- StreamData.integer(0..30)) do
+      opts = [tx_power: tx_power]
+      assert Physics.validate_opts!(opts) == opts
+    end
+  end
+
+  property "negative, float, out-of-range, or non-numeric tx_power raises" do
+    check all(
+            tx_power <-
+              StreamData.one_of([
+                StreamData.integer(-1000..-1),
+                StreamData.integer(31..1000),
+                StreamData.float(),
+                wrong_type()
+              ])
+          ) do
+      assert_raise ArgumentError, ~r/:tx_power/, fn ->
+        Physics.validate_opts!(tx_power: tx_power)
+      end
+    end
+  end
+
+  property "tx_gain is exactly 1.0 at the default and scales gains by the dB offset" do
+    check all(tx_power <- StreamData.integer(0..30)) do
+      assert Physics.tx_gain([]) == 1.0
+      assert Physics.tx_gain(tx_power: 10) == 1.0
+
+      expected = :math.pow(10.0, (tx_power - 10) / 20.0)
+      assert_in_delta Physics.tx_gain(tx_power: tx_power), expected, 1.0e-12
+
+      base = Physics.path_gain(2.0, 3.0, [])
+      scaled = Physics.path_gain(2.0, 3.0, tx_power: tx_power)
+      assert_in_delta scaled, base * expected, abs(base * expected) * 1.0e-12
     end
   end
 end
