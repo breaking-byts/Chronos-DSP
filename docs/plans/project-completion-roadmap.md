@@ -62,10 +62,17 @@ scaffolding.
 
 ## Physics depth (next major value)
 
-1. Multi-wall / higher-order reflections (2nd and 3rd order) with a path cap.
-2. Diffraction (UTD) around wall edges and a penetration-loss model.
+1. ~~Multi-wall / higher-order reflections (2nd and 3rd order) with a path
+   cap.~~ Done in `Chronos.Channel.MultiBounce` (orders 1..`:max_bounces`,
+   default 2) with a `:max_paths` cap in `Chronos.Channel`.
+2. ~~Diffraction (UTD) around wall edges and a penetration-loss model.~~ Done
+   as an ITU-R P.526-style knife-edge model
+   (`Chronos.Channel.Diffraction`) plus wall transmission
+   (`Chronos.Channel.Transmission`). Full UTD is still future work.
 3. Frequency-selective channel: per-path delay spread and a tapped delay line.
-4. Material library (concrete, glass, drywall) with attenuation coefficients.
+4. ~~Material library (concrete, glass, drywall) with attenuation
+   coefficients.~~ Done in `Chronos.Material`; the values are illustrative, so
+   calibrated coefficients are still future work.
 5. Calibrated link budget: antenna gains, transmit power, wavelength term, and
    a comparison against a simple ray-tracing reference.
 6. Optional 3D/height-aware rendering instead of the current XY projection.
@@ -109,5 +116,6 @@ scaffolding.
 
 1. v0.2.x: CI verification, toolchain pin, property tests, release smoke test,
    docs alignment.
-2. v0.3: multi-bounce/diffraction behind a path cap, plus benchmarks.
+2. v0.3: multi-bounce/diffraction behind a path cap, plus benchmarks. (The
+   multi-bounce/diffraction work landed earlier; benchmarks remain.)
 3. v0.4: API/export and persistence if the product direction requires them.
