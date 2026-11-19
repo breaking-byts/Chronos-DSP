@@ -50,6 +50,13 @@ defmodule Chronos.ChannelOptsTest do
       [speed_of_light: 1.0e308, carrier_freq_hz: 1.0e-308],
       [global_gain: 1.0e308],
       [global_gain: -1.0e308],
+      [tx_power: -1],
+      [tx_power: 31],
+      [tx_power: 10.5],
+      [tx_power: 0.0],
+      [tx_power: "10"],
+      [tx_power: :foo],
+      [tx_power: nil],
       [max_paths: 0],
       [max_paths: -1],
       [max_paths: 1.5],
@@ -81,5 +88,31 @@ defmodule Chronos.ChannelOptsTest do
     assert is_list(MultiBounce.paths(@tx, @rx, [@wall], opts))
     assert is_list(Diffraction.paths(@tx, @rx, [@wall], opts))
     assert is_list(Transmission.paths(@tx, @rx, [@wall], opts))
+  end
+
+  test "tx_power boundary values 0 and 30 produce paths with scaled gains" do
+    base = Channel.los_path(@tx, @rx, [], [])
+    low = Channel.los_path(@tx, @rx, [], tx_power: 0)
+    high = Channel.los_path(@tx, @rx, [], tx_power: 30)
+
+    # 2 m LOS path: unit gain at 1 m, so base gain is 0.5. The default (10 dBm)
+    # calibrates that normalization; 0 dBm attenuates by 10 dB, 30 dBm boosts
+    # by 20 dB, relative to the default.
+    assert_in_delta base.gain, 0.5, 1.0e-12
+    assert_in_delta low.gain, 0.5 * :math.pow(10.0, -10.0 / 20.0), 1.0e-12
+    assert_in_delta high.gain, 0.5 * :math.pow(10.0, 20.0 / 20.0), 1.0e-12
+
+    assert Channel.paths_for_rx!(world(), :rx, tx_power: 0) != []
+    assert Channel.paths_for_rx!(world(), :rx, tx_power: 30) != []
+  end
+
+  test "explicit tx_power 10 matches the default gains exactly" do
+    for opts <- [[], [tx_power: 10]] do
+      assert Channel.los_path(@tx, @rx, [], opts).gain ==
+               Channel.los_path(@tx, @rx, [], []).gain
+    end
+
+    assert Channel.paths_for_rx!(world(), :rx, tx_power: 10) ==
+             Channel.paths_for_rx!(world(), :rx, [])
   end
 end

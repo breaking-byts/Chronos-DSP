@@ -33,8 +33,8 @@ defmodule Chronos.Channel.Transmission do
     * `:extra_transmission_loss_db` - extra loss added on top of the material
       loss for every penetration (default `0.0`)
     * `:max_paths` - hard cap on returned paths (default `32`)
-    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
-      propagation options from `Chronos.Channel.Physics`
+    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain`, `:tx_power` - the
+      shared propagation options from `Chronos.Channel.Physics`
 
   Invalid option values raise `ArgumentError`
   (`Chronos.Channel.Physics.validate_opts!/1`).

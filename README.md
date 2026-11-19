@@ -133,6 +133,7 @@ overrides). The body must be `application/json` and at most 8 MB.
 | `seed` | integer | 0–4,294,967,295 | `1` |
 | `sample_rate` | number | 1,000–1,000,000 | `48000` |
 | `noise_power` | number | 0–1 | `0.01` |
+| `tx_power` | integer | 0–30 dBm | `10` |
 
 ```bash
 curl -s localhost:4000/api/simulate \
@@ -156,11 +157,13 @@ returns 406. There is no authentication or rate limiting yet.
 
 | Endpoint | Returns | Key parameters |
 | --- | --- | --- |
-| `GET /api/export/metrics` | one metrics row | `ticks` 0–100000 (default 0), `seed`, `scenario` |
-| `GET /api/export/history` | one row per sampled tick | `from`/`to` 0–100000 (defaults 0/100), `step` ≥ 1 (default 1), ≤ 1000 rows, `seed`, `scenario` |
-| `GET /api/export/samples` | first receiver's complex samples | `ticks`, `seed`, `scenario`, `limit` 1–512 (default 128) |
+| `GET /api/export/metrics` | one metrics row | `ticks` 0–100000 (default 0), `seed`, `scenario`, `tx_power` |
+| `GET /api/export/history` | one row per sampled tick | `from`/`to` 0–100000 (defaults 0/100), `step` ≥ 1 (default 1), ≤ 1000 rows, `seed`, `scenario`, `tx_power` |
+| `GET /api/export/samples` | first receiver's complex samples | `ticks`, `seed`, `scenario`, `limit` 1–512 (default 128), `tx_power` |
 
-`scenario` is `orbit` (default) or `open_field`; `seed` is 0–4294967295. Each
+`scenario` is `orbit` (default) or `open_field`; `seed` is 0–4294967295;
+`tx_power` is an integer 0–30 dBm (default 10) that scales the rendered signal
+power while the noise floor stays unchanged. Each
 tick advances the scenario by 0.1 s. History steps the world incrementally from
 `from`, so its cost is bounded by `to` rather than re-simulating from zero per
 row. Metrics CSV columns are `tick,time_s,rx_id,path_count,received_power,ber`;

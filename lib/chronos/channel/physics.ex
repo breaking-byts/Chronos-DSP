@@ -8,6 +8,9 @@ defmodule Chronos.Channel.Physics do
 
     * free-space amplitude decays as `1 / distance`, normalized at one metre;
     * material losses are decibels and are converted with `db_to_linear/1`;
+    * transmit power (`:tx_power`, integer dBm) scales every path gain as a
+      relative dB offset from the default, which calibrates the one-metre
+      unit-gain normalization;
     * Doppler uses the first and last leg of a path, projected onto the
       transmitter and receiver velocities respectively.
 
@@ -19,6 +22,9 @@ defmodule Chronos.Channel.Physics do
 
   @default_speed_of_light 299_792_458.0
   @default_carrier_freq_hz 2.4e9
+  @default_tx_power_dbm 10
+  @min_tx_power_dbm 0
+  @max_tx_power_dbm 30
 
   @type vec3 :: Geometry.vec3()
   @type opts :: keyword()
@@ -36,7 +42,7 @@ defmodule Chronos.Channel.Physics do
   def wavelength(opts), do: speed_of_light(opts) / carrier_freq_hz(opts)
 
   @doc "Converts a decibel ratio to a linear amplitude ratio."
-  @spec db_to_linear(float()) :: float()
+  @spec db_to_linear(number()) :: float()
   def db_to_linear(db), do: :math.pow(10.0, db / 20.0)
 
   @doc "Free-space amplitude, normalized so a one-metre path has unit gain."
@@ -85,17 +91,37 @@ defmodule Chronos.Channel.Physics do
   @doc """
   Linear gain for a path with a total geometric length and a total loss in dB.
 
-  The global gain option is applied last so callers can attenuate or boost a
-  whole scene without touching individual path models.
+  The transmit-power factor and the global gain option are applied last so
+  callers can attenuate or boost a whole scene without touching individual
+  path models.
   """
   @spec path_gain(float(), float(), opts()) :: float()
   def path_gain(length, loss_db, opts) do
-    free_space_gain(length) * db_to_linear(-loss_db) * global_gain(opts)
+    free_space_gain(length) * db_to_linear(-loss_db) * tx_gain(opts) * global_gain(opts)
   end
 
   @doc "Global gain multiplier applied to every path (default `1.0`)."
   @spec global_gain(opts()) :: float()
   def global_gain(opts), do: Keyword.get(opts, :global_gain, 1.0)
+
+  @doc """
+  Transmit power in dBm (default `10`, range `0..30`).
+
+  The transmit-power term of the link budget. The model's free-space
+  normalization (unit gain at one metre) is calibrated to this default, so
+  `tx_gain/1` applies the relative offset `tx_power - 10` dB and the default
+  leaves every path gain unchanged.
+  """
+  @spec tx_power_dbm(opts()) :: integer()
+  def tx_power_dbm(opts), do: Keyword.get(opts, :tx_power, @default_tx_power_dbm)
+
+  @doc """
+  Linear amplitude factor for `:tx_power` relative to the default transmit
+  power: `10 ** ((tx_power - 10) / 20)`. Exactly `1.0` at the default, so
+  existing renders are unchanged; received power scales with its square.
+  """
+  @spec tx_gain(opts()) :: float()
+  def tx_gain(opts), do: db_to_linear(tx_power_dbm(opts) - @default_tx_power_dbm)
 
   @doc "Returns true when `number` is a finite float (not NaN or infinity)."
   @spec finite?(number()) :: boolean()
@@ -117,11 +143,12 @@ defmodule Chronos.Channel.Physics do
 
   Checked: `:speed_of_light` (1.0..1.0e12 m/s) and `:carrier_freq_hz`
   (1.0..1.0e15 Hz), with a finite positive wavelength; `:global_gain` (finite,
-  magnitude <= 1.0e100); `:max_paths`, `:max_bounces`, and `:max_candidates`
-  (positive integers when present); and `:extra_transmission_loss_db` (finite,
-  0..1.0e6 dB when present). The magnitude bounds keep downstream float
-  arithmetic from overflowing into arithmetic errors on this OTP, which raises
-  on overflow instead of producing infinity.
+  magnitude <= 1.0e100); `:tx_power` (integer, 0..30 dBm when present);
+  `:max_paths`, `:max_bounces`, and `:max_candidates` (positive integers when
+  present); and `:extra_transmission_loss_db` (finite, 0..1.0e6 dB when
+  present). The magnitude bounds keep downstream float arithmetic from
+  overflowing into arithmetic errors on this OTP, which raises on overflow
+  instead of producing infinity.
   """
   @spec validate_opts!(opts()) :: opts()
   def validate_opts!(opts) do
@@ -155,6 +182,17 @@ defmodule Chronos.Channel.Physics do
     unless finite?(gain) and abs(gain) <= 1.0e100 do
       raise ArgumentError,
             ":global_gain must be finite with magnitude <= 1.0e100, got: #{inspect(gain)}"
+    end
+
+    case Keyword.fetch(opts, :tx_power) do
+      {:ok, value} ->
+        unless is_integer(value) and value >= @min_tx_power_dbm and value <= @max_tx_power_dbm do
+          raise ArgumentError,
+                ":tx_power must be an integer in #{@min_tx_power_dbm}..#{@max_tx_power_dbm} dBm, got: #{inspect(value)}"
+        end
+
+      :error ->
+        :ok
     end
 
     for key <- [:max_paths, :max_bounces, :max_candidates] do

@@ -27,6 +27,9 @@ defmodule ChronosWeb.ApiParams do
   end
 
   @max_seed 4_294_967_295
+  @default_tx_power 10
+  @min_tx_power 0
+  @max_tx_power 30
 
   @doc """
   The unsigned 32-bit ceiling for API noise seeds. `Chronos.SimFrame` mixes the
@@ -36,6 +39,40 @@ defmodule ChronosWeb.ApiParams do
   """
   @spec max_seed() :: pos_integer()
   def max_seed, do: @max_seed
+
+  @doc """
+  The default transmit power in dBm for API channel opts. Matches
+  `Chronos.Channel.Physics.tx_power_dbm/1`; the model's unit-gain-at-one-metre
+  normalization is calibrated to it, so the default leaves renders unchanged.
+  Shared by the simulation and export controllers.
+  """
+  @spec default_tx_power() :: integer()
+  def default_tx_power, do: @default_tx_power
+
+  @doc """
+  The transmit-power bounds in dBm (`0..30`) for API channel opts, matching the
+  interactive-editing design lock. Shared by the simulation and export
+  controllers.
+  """
+  @spec tx_power_range() :: {integer(), integer()}
+  def tx_power_range, do: {@min_tx_power, @max_tx_power}
+
+  @doc """
+  Validates a `tx_power` value from a JSON body: an integer in `0..30` dBm.
+  Floats, negatives, out-of-range integers, and non-numbers are rejected, the
+  JSON-body counterpart to `parse_query_integer/5` on the export endpoints.
+  Returns `{:ok, value}` or `{:error, message}`.
+  """
+  @spec validate_tx_power(term()) :: {:ok, integer()} | {:error, String.t()}
+  def validate_tx_power(value) do
+    {minimum, maximum} = tx_power_range()
+
+    if is_integer(value) and value >= minimum and value <= maximum do
+      {:ok, value}
+    else
+      {:error, "tx_power must be an integer between #{minimum} and #{maximum}"}
+    end
+  end
 
   @doc """
   Parses an optional integer query parameter within `[minimum, maximum]`.

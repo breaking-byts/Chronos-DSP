@@ -27,6 +27,7 @@ defmodule Chronos.SimFrame do
 
   @default_sample_rate 48_000.0
   @default_noise_power 0.01
+  @default_tx_power 10
   @display_path_limit 64
 
   @type frame :: %{
@@ -49,6 +50,8 @@ defmodule Chronos.SimFrame do
     * `:seed` - deterministic noise seed (default `1`)
     * `:sample_rate` - samples per second (default `48_000.0`)
     * `:noise_power` - complex noise power (default `0.01`)
+    * `:tx_power` - transmit power in dBm, integer `0..30` (default `10`);
+      scales the rendered signal, not the noise
     * `:bounds` - fixed viewport bounds; derived from the world when absent
   """
   @spec from_world(World.t(), keyword()) :: frame()
@@ -77,7 +80,8 @@ defmodule Chronos.SimFrame do
 
   Skips scene encoding and the display-path pass, so JSON API responses do not
   pay for geometry they never return. Takes the same options as `from_world/2`:
-  `:tick` is required; `:seed`, `:sample_rate`, and `:noise_power` are optional.
+  `:tick` is required; `:seed`, `:sample_rate`, `:noise_power`, and `:tx_power`
+  are optional.
   """
   @spec metrics_and_dsp(World.t(), keyword()) :: {map(), map()}
   def metrics_and_dsp(%World{} = world, opts) do
@@ -92,7 +96,7 @@ defmodule Chronos.SimFrame do
   snapshot. The CSV export endpoints emit metrics rows and never return
   constellation/waveform/spectrum data, so they avoid the spectrum transform.
   Takes the same options as `from_world/2`: `:tick` is required; `:seed`,
-  `:sample_rate`, and `:noise_power` are optional.
+  `:sample_rate`, `:noise_power`, and `:tx_power` are optional.
   """
   @spec metrics(World.t(), keyword()) :: map()
   def metrics(%World{} = world, opts) do
@@ -107,7 +111,8 @@ defmodule Chronos.SimFrame do
     seed = Keyword.get(opts, :seed, 1)
     sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
     noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
-    build_metrics(world, seed + tick, sample_rate, noise_power)
+    tx_power = Keyword.get(opts, :tx_power, @default_tx_power)
+    build_metrics(world, seed + tick, sample_rate, noise_power, tx_power)
   end
 
   # The dashboard draws the same paths the DSP renders, so the display paths
@@ -124,7 +129,7 @@ defmodule Chronos.SimFrame do
     end)
   end
 
-  defp build_metrics(world, seed, sample_rate, noise_power) do
+  defp build_metrics(world, seed, sample_rate, noise_power, tx_power) do
     case nodes_of_type(world, :rx) do
       [] ->
         {:empty, empty_metrics()}
@@ -135,7 +140,8 @@ defmodule Chronos.SimFrame do
         sim_opts = [
           sample_rate: sample_rate,
           noise_power: noise_power,
-          seed: seed
+          seed: seed,
+          tx_power: tx_power
         ]
 
         rx_map = Sim.render(world, tx_block, sim_opts)

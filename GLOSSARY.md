@@ -61,6 +61,11 @@ A top-down XY rendering that conveys z through visual cues while keeping the
 layout planar.
 _Avoid_: 2.5D, pseudo-3D
 
+**Transmit power**:
+The transmitter's output power in dBm, scaling every path gain relative to the
+10 dBm reference default; it boosts the signal, not the noise floor.
+_Avoid_: TX strength, power level
+
 ### Engine
 
 **Reference fallback**:

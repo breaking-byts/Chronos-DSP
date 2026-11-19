@@ -42,8 +42,8 @@ defmodule Chronos.Channel.MultiBounce do
       the wall count and bounce order, so this bounds the work per call. The
       lowest reflection orders are examined first, so a scene with many walls
       may not reach the requested bounce order.
-    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
-      propagation options from `Chronos.Channel.Physics`
+    * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain`, `:tx_power` - the
+      shared propagation options from `Chronos.Channel.Physics`
 
   Paths are grouped by bounce order: all first-order paths, then second-order,
   etc. Within each order, paths follow the sorted wall ids of the sequence.
