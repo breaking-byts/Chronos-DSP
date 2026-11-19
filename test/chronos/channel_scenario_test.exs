@@ -50,7 +50,14 @@ defmodule Chronos.ChannelScenarioTest do
 
     assert Channel.segment_occluded?(tx.pos, rx.pos, [wall], nil)
     assert Channel.los_path(tx, rx, [wall], []) == nil
-    assert {:ok, []} = Channel.paths_for_rx(world, :rx1, [])
+
+    # The direct path is gone, but the wall can still be penetrated and
+    # diffracted around.
+    assert {:ok, paths} = Channel.paths_for_rx(world, :rx1, [])
+    assert paths != []
+    assert Enum.all?(paths, &(&1.kind != :los))
+    assert Enum.any?(paths, &(&1.kind == :transmission))
+    assert Enum.any?(paths, &(&1.kind == :diffraction))
   end
 
   test "reflections are not generated through an occluding wall" do

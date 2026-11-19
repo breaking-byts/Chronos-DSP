@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Chronos.Material`: a material catalogue (brick, concrete, drywall, glass,
+  metal, wood, plaster, plywood, reinforced concrete, soil, water) with
+  reflection, transmission, and diffraction losses in dB. Walls now carry a
+  `material` and may override the reflection loss with an explicit
+  `attenuation_db`.
+- `Chronos.Channel.MultiBounce`: reflection paths of first order and higher
+  found with the image-source method, with per-leg occlusion checks and a
+  `:max_bounces` limit (default 2).
+- `Chronos.Channel.Diffraction`: ITU-R P.526-style knife-edge diffraction
+  around the edges of blocking walls.
+- `Chronos.Channel.Transmission`: transmission paths through blocking walls
+  whose loss comes from the wall material's transmission loss.
+- `Chronos.Channel.Physics`: the propagation conventions shared by the path
+  models (free-space gain, dB conversion, path length, Doppler).
+- `Chronos.Channel.Path`: a path struct that carries the path kind, bounce
+  count, polyline, and interactions alongside the DSP fields.
+- Dashboard overlays for diffraction and transmission paths, and wall labels
+  showing the material and its effective reflection loss.
+- `POST /api/simulate`: a stateless JSON endpoint that runs a built-in scenario
+  and returns its metrics and DSP snapshot, with bounded, validated parameters
+  (`tick`, `scenario`, `seed`, `sample_rate`, `noise_power`).
+- Uniform JSON error rendering (`ChronosWeb.ErrorJSON`) so API 404/406/413
+  responses share the `{"error": message}` shape; browsers that accept HTML
+  still receive HTML error pages.
+
+### Changed
+
+- `ChronosWeb.ApiParams` rejects query strings on mutating `/api/*` requests
+  and reserved `_`-prefixed body fields on every `/api/*` route, before
+  `Plug.MethodOverride` and format negotiation.
+- `Chronos.SimFrame.metrics_and_dsp/2` exposes the metrics/DSP computation so
+  the API reuses it without building display geometry.
+- `Chronos.Channel.paths_for_rx/3` now returns line-of-sight, reflection,
+  diffraction, and transmission paths, capped by `:max_paths` (default 32) with
+  the strongest paths kept first. `:diffraction` and `:transmission` can be
+  disabled per call.
+- `Chronos.SimFrame` builds its display paths from `Chronos.Channel` instead
+  of duplicating the geometry code.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added

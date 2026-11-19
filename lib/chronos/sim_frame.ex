@@ -5,11 +5,14 @@ defmodule Chronos.SimFrame do
   A frame contains the scene geometry, every LOS/reflection path for display,
   the latest link metrics, and a small DSP snapshot (constellation, waveform,
   spectrum) for the first receiver.
+
+  The JSON API reuses `metrics_and_dsp/2` to compute only the metrics and DSP
+  snapshot, without the scene encoding or the display-path pass.
   """
 
   alias Chronos.Channel
-  alias Chronos.Geometry
   alias Chronos.Metrics
+  alias Chronos.Material
   alias Chronos.Modem
   alias Chronos.Packing
   alias Chronos.Scene
@@ -23,6 +26,7 @@ defmodule Chronos.SimFrame do
 
   @default_sample_rate 48_000.0
   @default_noise_power 0.01
+  @display_path_limit 64
 
   @type frame :: %{
           tick: non_neg_integer(),
@@ -49,12 +53,9 @@ defmodule Chronos.SimFrame do
   @spec from_world(World.t(), keyword()) :: frame()
   def from_world(%World{} = world, opts) do
     tick = Keyword.fetch!(opts, :tick)
-    seed = Keyword.get(opts, :seed, 1)
-    sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
-    noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
     bounds = Keyword.get_lazy(opts, :bounds, fn -> Scene.bounds(world) end)
 
-    {metrics, dsp} = build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
+    {metrics, dsp} = metrics_and_dsp(world, opts)
 
     %{
       tick: tick,
@@ -64,45 +65,38 @@ defmodule Chronos.SimFrame do
         world.nodes |> Map.values() |> Enum.sort_by(&to_string(&1.id)) |> Enum.map(&encode_node/1),
       walls:
         world.walls |> Map.values() |> Enum.sort_by(&to_string(&1.id)) |> Enum.map(&encode_wall/1),
-      paths: build_paths(world) |> Enum.map(&encode_path/1),
+      paths: build_paths(world),
       metrics: metrics,
       dsp: dsp
     }
   end
 
-  defp build_paths(world) do
-    txs = nodes_of_type(world, :tx)
-    rxs = nodes_of_type(world, :rx)
-    walls = Map.values(world.walls)
+  @doc """
+  Computes only the link metrics and DSP snapshot for the first receiver.
 
-    Enum.flat_map(txs, fn tx ->
-      Enum.flat_map(rxs, fn rx ->
-        direct =
-          if Channel.segment_occluded?(tx.pos, rx.pos, walls, nil) do
-            []
-          else
-            [%{points: [tx.pos, rx.pos], kind: :los}]
-          end
-
-        direct ++ reflection_paths(tx, rx, walls)
-      end)
-    end)
+  Skips scene encoding and the display-path pass, so JSON API responses do not
+  pay for geometry they never return. Takes the same options as `from_world/2`:
+  `:tick` is required; `:seed`, `:sample_rate`, and `:noise_power` are optional.
+  """
+  @spec metrics_and_dsp(World.t(), keyword()) :: {map(), map()}
+  def metrics_and_dsp(%World{} = world, opts) do
+    tick = Keyword.fetch!(opts, :tick)
+    seed = Keyword.get(opts, :seed, 1)
+    sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
+    noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
+    build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
   end
 
-  defp reflection_paths(tx, rx, walls) do
-    Enum.flat_map(walls, fn wall ->
-      plane_point = hd(wall.vertices)
-
-      with {:ok, tx_reflected} <-
-             Geometry.reflect_point_across_plane(tx.pos, plane_point, wall.normal),
-           {:ok, hit, _t} <-
-             Geometry.segment_plane_intersect(tx_reflected, rx.pos, plane_point, wall.normal),
-           true <- Geometry.point_in_polygon(hit, wall.vertices, wall.normal),
-           false <- Channel.segment_occluded?(tx.pos, hit, walls, wall.id),
-           false <- Channel.segment_occluded?(hit, rx.pos, walls, wall.id) do
-        [%{points: [tx.pos, hit, rx.pos], kind: :reflection}]
-      else
-        _ -> []
+  # The dashboard draws the same paths the DSP renders, so the display paths
+  # come straight from the channel model instead of a second copy of the
+  # geometry code.
+  defp build_paths(world) do
+    world
+    |> nodes_of_type(:rx)
+    |> Enum.flat_map(fn rx ->
+      case Channel.paths_for_rx(world, rx.id, max_paths: @display_path_limit) do
+        {:ok, paths} -> Enum.map(paths, &encode_path/1)
+        {:error, :unknown_rx} -> []
       end
     end)
   end
@@ -150,17 +144,31 @@ defmodule Chronos.SimFrame do
     %{id: to_string(id), type: to_string(type), pos: tuple_to_list(pos), vel: tuple_to_list(vel)}
   end
 
-  defp encode_wall(%World.Wall{id: id, vertices: vertices, normal: normal, attenuation_db: att}) do
+  defp encode_wall(%World.Wall{
+         id: id,
+         vertices: vertices,
+         normal: normal,
+         attenuation_db: att,
+         material: material
+       }) do
     %{
       id: to_string(id),
       vertices: Enum.map(vertices, &tuple_to_list/1),
       normal: tuple_to_list(normal),
-      attenuation_db: att
+      attenuation_db: att,
+      material: to_string(material),
+      loss_db: Material.reflection_loss_db(%{attenuation_db: att, material: material})
     }
   end
 
-  defp encode_path(%{points: points, kind: kind}) do
-    %{points: Enum.map(points, &tuple_to_list/1), kind: to_string(kind)}
+  defp encode_path(%{points: points, kind: kind, bounces: bounces, gain: gain, delay_s: delay_s}) do
+    %{
+      points: Enum.map(points, &tuple_to_list/1),
+      kind: to_string(kind),
+      bounces: bounces,
+      gain: gain,
+      delay_s: delay_s
+    }
   end
 
   defp tuple_to_list(tuple) when is_tuple(tuple), do: Tuple.to_list(tuple)
