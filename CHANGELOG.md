@@ -27,9 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count, polyline, and interactions alongside the DSP fields.
 - Dashboard overlays for diffraction and transmission paths, and wall labels
   showing the material and its effective reflection loss.
+- `POST /api/simulate`: a stateless JSON endpoint that runs a built-in scenario
+  and returns its metrics and DSP snapshot, with bounded, validated parameters
+  (`tick`, `scenario`, `seed`, `sample_rate`, `noise_power`).
+- Uniform JSON error rendering (`ChronosWeb.ErrorJSON`) so API 404/406/413
+  responses share the `{"error": message}` shape; browsers that accept HTML
+  still receive HTML error pages.
 
 ### Changed
 
+- `ChronosWeb.ApiParams` rejects query strings on mutating `/api/*` requests
+  and reserved `_`-prefixed body fields on every `/api/*` route, before
+  `Plug.MethodOverride` and format negotiation.
+- `Chronos.SimFrame.metrics_and_dsp/2` exposes the metrics/DSP computation so
+  the API reuses it without building display geometry.
 - `Chronos.Channel.paths_for_rx/3` now returns line-of-sight, reflection,
   diffraction, and transmission paths, capped by `:max_paths` (default 32) with
   the strongest paths kept first. `:diffraction` and `:transmission` can be
