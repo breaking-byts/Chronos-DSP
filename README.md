@@ -120,10 +120,11 @@ mix format --check-formatted
 bin/profile                               # throughput profile script
 ```
 
-The Elixir suite has 120 tests and the Rust crate has 2. The Elixir suite
-includes channel/scenario geometry, DSP reference and NIF parity, packing,
-modem, scene bounds, frame/server/supervisor behavior, LiveView controls, and
-health endpoints.
+The Elixir suite has 195 tests and the Rust crate has 2. The Elixir suite
+includes channel/scenario geometry, the material catalogue and
+multi-bounce/diffraction/transmission models, uniform option validation, DSP
+reference and NIF parity, packing, modem, scene bounds, frame/server/supervisor
+behavior, LiveView controls, and health endpoints.
 
 ## Docker
 

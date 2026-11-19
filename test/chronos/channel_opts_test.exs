@@ -23,6 +23,10 @@ defmodule Chronos.ChannelOptsTest do
     [
       {"Channel.paths_for_rx!", fn opts -> Channel.paths_for_rx!(world(), :rx, opts) end},
       {"Channel.los_path", fn opts -> Channel.los_path(@tx, @rx, [@wall], opts) end},
+      {"Channel.doppler",
+       fn opts ->
+         Channel.doppler({0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, opts)
+       end},
       {"MultiBounce.paths", fn opts -> MultiBounce.paths(@tx, @rx, [@wall], opts) end},
       {"Diffraction.paths", fn opts -> Diffraction.paths(@tx, @rx, [@wall], opts) end},
       {"Transmission.paths", fn opts -> Transmission.paths(@tx, @rx, [@wall], opts) end}
@@ -38,8 +42,10 @@ defmodule Chronos.ChannelOptsTest do
     [
       [carrier_freq_hz: 0.0],
       [carrier_freq_hz: -1.0],
+      [carrier_freq_hz: 1.0e-308],
       [speed_of_light: 0.0],
       [speed_of_light: -1.0],
+      [speed_of_light: 1.0e-308],
       # wavelength division overflows even though both inputs are finite
       [speed_of_light: 1.0e308, carrier_freq_hz: 1.0e-308],
       [global_gain: 1.0e308],

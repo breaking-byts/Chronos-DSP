@@ -372,7 +372,7 @@ defmodule Chronos.Channel.MultiBounceTest do
     assert length(paths) == length(unique_paths)
   end
 
-  test "paths ordered by bounce count then wall ids" do
+  test "paths ordered by bounce order then wall ids" do
     wall1 = %World.Wall{
       id: :w1,
       vertices: [{0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}, {0.0, -2.0, 2.0}],

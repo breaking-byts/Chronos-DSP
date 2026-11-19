@@ -45,11 +45,12 @@ defmodule Chronos.Channel.MultiBounce do
     * `:speed_of_light`, `:carrier_freq_hz`, `:global_gain` - the shared
       propagation options from `Chronos.Channel.Physics`
 
-  Paths are ordered by bounce count (all first-order, then second-order, etc.),
-  and within each order by the sorted wall ids of the sequence. This order is
-  deterministic and stable. Paths that describe the same geometry (a ray that
-  hits the corner where two walls meet) are returned once: duplicates are
-  removed before the cap, so `:max_paths` counts distinct paths.
+  Paths are grouped by bounce order: all first-order paths, then second-order,
+  etc. Within each order, paths follow the sorted wall ids of the sequence.
+  This order is deterministic and stable. Paths that describe the same
+  geometry (a path that hits the corner where two walls meet) are returned
+  once: duplicates are removed before the cap, so `:max_paths` counts distinct
+  paths.
 
   Invalid option values raise `ArgumentError`
   (`Chronos.Channel.Physics.validate_opts!/1`).
@@ -96,9 +97,9 @@ defmodule Chronos.Channel.MultiBounce do
     Enum.reverse(paths)
   end
 
-  # Two bounce orders can describe the same physical path (a ray that hits the
-  # corner where two walls meet), so paths are de-duplicated by their geometry.
-  # The key rounds to nanometres, which is far below any physical resolution.
+  # Two bounce orders can describe the same physical path (a path that hits
+  # the corner where two walls meet), so paths are de-duplicated by their
+  # geometry. The key rounds to nanometres, far below any physical resolution.
   @spec path_key(Path.t()) :: list(tuple())
   defp path_key(%Path{points: points}) do
     Enum.map(points, fn {x, y, z} -> {round(x * 1.0e9), round(y * 1.0e9), round(z * 1.0e9)} end)
@@ -307,13 +308,11 @@ defmodule Chronos.Channel.MultiBounce do
         end)
 
       gain = Physics.path_gain(total_length, loss_db, opts)
+      doppler_hz = Physics.doppler_hz(points, tx.vel, rx.vel, Physics.wavelength(opts))
 
-      # Guard against non-finite gain
-      if not Physics.finite?(gain) do
-        {:error, :non_finite_gain}
-      else
-        doppler_hz = Physics.doppler_hz(points, tx.vel, rx.vel, Physics.wavelength(opts))
-
+      # Guard every packed field: delay/gain/doppler feed the float32/float64
+      # binary packing and the NIF.
+      if Physics.finite?(delay_s) and Physics.finite?(gain) and Physics.finite?(doppler_hz) do
         interactions =
           Enum.map(walls, fn wall -> {:reflection, wall.id} end)
 
@@ -328,6 +327,8 @@ defmodule Chronos.Channel.MultiBounce do
         }
 
         {:ok, path}
+      else
+        {:error, :non_finite_path}
       end
     end
   end

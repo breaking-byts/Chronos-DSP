@@ -115,24 +115,25 @@ defmodule Chronos.Channel.Physics do
   fail loudly and uniformly instead of raising arithmetic errors deep in the
   math or silently returning no paths.
 
-  Checked: `:speed_of_light` and `:carrier_freq_hz` (finite and positive, with
-  a finite positive wavelength), `:global_gain` (finite, magnitude <= 1.0e100),
-  `:max_paths`, `:max_bounces`, and `:max_candidates` (positive integers when
-  present), and `:extra_transmission_loss_db` (finite, 0..1.0e6 dB when
-  present). The magnitude bounds keep downstream float arithmetic from
-  overflowing into arithmetic errors.
+  Checked: `:speed_of_light` (1.0..1.0e12 m/s) and `:carrier_freq_hz`
+  (1.0..1.0e15 Hz), with a finite positive wavelength; `:global_gain` (finite,
+  magnitude <= 1.0e100); `:max_paths`, `:max_bounces`, and `:max_candidates`
+  (positive integers when present); and `:extra_transmission_loss_db` (finite,
+  0..1.0e6 dB when present). The magnitude bounds keep downstream float
+  arithmetic from overflowing into arithmetic errors on this OTP, which raises
+  on overflow instead of producing infinity.
   """
   @spec validate_opts!(opts()) :: opts()
   def validate_opts!(opts) do
     c = speed_of_light(opts)
     f = carrier_freq_hz(opts)
 
-    unless finite_positive?(c) do
-      raise ArgumentError, ":speed_of_light must be finite and positive, got: #{inspect(c)}"
+    unless finite_positive?(c) and c >= 1.0 and c <= 1.0e12 do
+      raise ArgumentError, ":speed_of_light must be in 1.0..1.0e12 m/s, got: #{inspect(c)}"
     end
 
-    unless finite_positive?(f) do
-      raise ArgumentError, ":carrier_freq_hz must be finite and positive, got: #{inspect(f)}"
+    unless finite_positive?(f) and f >= 1.0 and f <= 1.0e15 do
+      raise ArgumentError, ":carrier_freq_hz must be in 1.0..1.0e15 Hz, got: #{inspect(f)}"
     end
 
     # The division itself can overflow to an arithmetic error on extreme but

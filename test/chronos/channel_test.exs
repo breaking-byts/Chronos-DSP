@@ -160,6 +160,35 @@ defmodule Chronos.ChannelTest do
     assert Enum.all?(paths, &(&1.kind in [:los, :reflection]))
   end
 
+  test "the path cap keeps the strongest paths across all transmitters" do
+    # a_tx is far (weak LOS), b_tx is near (strong LOS); ids sort a first, so a
+    # per-tx sort-then-cap would keep the weak path and drop the strong one.
+    world =
+      World.new()
+      |> World.add_node(%World.Node{
+        id: :a_tx,
+        type: :tx,
+        pos: {0.0, 100.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+      |> World.add_node(%World.Node{
+        id: :b_tx,
+        type: :tx,
+        pos: {0.0, 1.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+      |> World.add_node(%World.Node{
+        id: :rx1,
+        type: :rx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+
+    {:ok, [path]} = Channel.paths_for_rx(world, :rx1, speed_of_light: 1.0, max_paths: 1)
+    assert path.delay_s == 1.0
+    assert_in_delta path.gain, 1.0, 1.0e-9
+  end
+
   test "paths are deterministic for the same world" do
     world = corner_world()
 

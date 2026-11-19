@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `:max_bounces` limit (default 2).
 - `Chronos.Channel.Diffraction`: ITU-R P.526-style knife-edge diffraction
   around the edges of blocking walls.
-- `Chronos.Channel.Transmission`: wall penetration paths whose loss comes from
-  the wall material's transmission loss.
+- `Chronos.Channel.Transmission`: transmission paths through blocking walls
+  whose loss comes from the wall material's transmission loss.
 - `Chronos.Channel.Physics`: the propagation conventions shared by the path
   models (free-space gain, dB conversion, path length, Doppler).
 - `Chronos.Channel.Path`: a path struct that carries the path kind, bounce

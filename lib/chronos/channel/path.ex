@@ -46,8 +46,8 @@ defmodule Chronos.Channel.Path do
   @doc """
   Builds a path from keyword attributes.
 
-  Unknown attributes raise, so typos surface at compile time rather than
-  silently producing a half-populated path.
+  Unknown attributes raise at runtime rather than silently producing a
+  half-populated path.
   """
   @spec new(keyword()) :: t()
   def new(attrs) when is_list(attrs), do: struct(__MODULE__, attrs)

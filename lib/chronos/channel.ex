@@ -24,7 +24,7 @@ defmodule Chronos.Channel do
     * `:max_bounces` - highest reflection order to compute (default `2`)
     * `:max_paths` - hard cap on the paths returned per receiver (default `32`)
     * `:diffraction` - set to `false` to skip diffracted paths (default `true`)
-    * `:transmission` - set to `false` to skip penetrating paths (default `true`)
+    * `:transmission` - set to `false` to skip transmission paths (default `true`)
 
   Paths are returned strongest first, so the cap keeps the paths that
   contribute the most energy.
@@ -75,12 +75,12 @@ defmodule Chronos.Channel do
             diffraction = Diffraction.paths(tx, rx, walls, path_opts)
             transmission = Transmission.paths(tx, rx, walls, path_opts)
 
-            sort_by_strength(
-              Enum.reject([los | reflections ++ diffraction ++ transmission], &is_nil/1)
-            )
+            Enum.reject([los | reflections ++ diffraction ++ transmission], &is_nil/1)
           end)
 
-        {:ok, Enum.take(paths, max_paths(path_opts))}
+        # Sort across ALL transmitters before capping, so the cap keeps the
+        # strongest paths in the scene, not the strongest of the first tx.
+        {:ok, paths |> sort_by_strength() |> Enum.take(max_paths(path_opts))}
 
       %World.Node{} ->
         {:error, :unknown_rx}
@@ -168,6 +168,7 @@ defmodule Chronos.Channel do
   @spec doppler(Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), Geometry.vec3(), keyword()) ::
           float()
   def doppler(tx_pos, tx_vel, rx_pos, rx_vel, opts) do
+    opts = Physics.validate_opts!(opts)
     Physics.doppler_hz([tx_pos, rx_pos], tx_vel, rx_vel, Physics.wavelength(opts))
   end
 
