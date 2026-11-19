@@ -44,6 +44,7 @@ defmodule ChronosWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(ChronosWeb.TelemetryPlug)
 
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, ChronosWeb.ApiParams.JSONParser],

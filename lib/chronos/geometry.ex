@@ -62,6 +62,9 @@ defmodule Chronos.Geometry do
     case ray_plane_intersect(a, dir, plane_point, plane_normal) do
       {:ok, point, t} when t >= 0.0 and t <= 1.0 -> {:ok, point, t}
       {:ok, _point, _t} -> :outside
+      # A segment is undirected: an intersection beyond either endpoint is
+      # outside the segment, so the classification is symmetric in a/b.
+      :behind -> :outside
       other -> other
     end
   end

@@ -36,15 +36,17 @@ dashboard renders a top-down XY view.
 | `Chronos.SceneStore` | File-backed named scenes: traversal-safe names, atomic writes, atom-safe ids, material-aware walls, capped storage with oldest-first eviction (ephemeral, ADR 0001). |
 | `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
 | `Chronos.SimFrame` | JSON-safe frame (`from_world/2`); `metrics_and_dsp/2` (API) and `metrics/2` (CSV export) skip scene/display geometry; `default_tx_block/1` is the shared deterministic QPSK test block. |
-| `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. |
+| `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. Emits session lifecycle telemetry. |
 | `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
 | `Chronos.Runtime` | App version, build/runtime env, NIF status, timestamp, uptime for health JSON. |
+| `Chronos.Telemetry` | Idempotent `:telemetry` handler attachment; logs Chronos events via stdlib Logger with structured metadata (no JSON-formatter dependency). |
 | `ChronosWeb.SimLive` | LiveView that starts/stops a session and pushes frames to two hooks. |
 | `ChronosWeb.HealthController` | `/healthz` and `/readyz`. |
 | `ChronosWeb.SimulationController` | `POST /api/simulate`: stateless JSON metrics + DSP snapshot. |
 | `ChronosWeb.ExportController` | `GET /api/export/{metrics,history,samples}`: CSV-only export. |
 | `ChronosWeb.SceneController` | `GET/POST/DELETE /api/scenes`: named-scene CRUD with uniform JSON errors. |
 | `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + query-integer validation. |
+| `ChronosWeb.TelemetryPlug` | Emits `[:chronos, :api, :request]` start/stop events (duration, method, path, status) for `/api/*` requests; halt-safe. |
 | `ChronosWeb.ErrorJSON` | Uniform `{"error": message}` JSON error rendering. |
 | `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
 
@@ -181,6 +183,36 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
   (`FORCE_SSL=true`/`PHX_SCHEME=https`). `/healthz` and `/readyz` are excluded
   from the redirect so internal probes work; `FORCE_SSL=false` is available for
   local containers. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Telemetry
+
+Chronos emits `:telemetry` events and logs them through the stdlib `Logger`
+with structured metadata. **Design decision:** no JSON-formatter dependency is
+added; metadata (`event`, `duration_ms`, `route`, `status`, scenario/session
+ids, render options) rides on ordinary Logger events, so any formatter or
+backend can consume it. A JSON formatter can be layered on later without
+changing the event contract.
+
+| Event | Emitter | Measurements | Metadata |
+| --- | --- | --- | --- |
+| `[:chronos, :sim, :render, :start]` | `Chronos.Sim.render/3` (`:telemetry.span`) | `system_time` | `receiver_count`, `sample_rate`, `seed` |
+| `[:chronos, :sim, :render, :stop]` | same span | `duration` (native time) | start metadata + `noise_power` |
+| `[:chronos, :sim, :render, :exception]` | same span, on raise | span exception measurements | start metadata + `kind`, `reason`, `stacktrace` |
+| `[:chronos, :session, :start]` | `Chronos.SimServer.init/1` | `system_time` | `scenario`, `session` (pid), `custom_world` |
+| `[:chronos, :session, :stop]` | `Chronos.SimServer.terminate/2` | `system_time`, `duration` | `scenario`, `session` (pid) |
+| `[:chronos, :api, :request, :start]` | `ChronosWeb.TelemetryPlug` | `system_time` | `method`, `path` |
+| `[:chronos, :api, :request, :stop]` | same plug, `register_before_send` | `duration` (native time) | `method`, `path`, `status` |
+
+- `Chronos.Telemetry.attach/0` is called from `Chronos.Application.start/2`.
+  It is idempotent (detaches any previous handler with the same id first) and
+  logs `:stop` events at `info`, everything else at `debug`.
+- The API plug sits after `Plug.Telemetry` and before the router, and only
+  emits for `/api/*` paths. A mid-pipeline plug cannot wrap downstream plugs
+  in `:telemetry.span/3`, so it emits the equivalent start/stop events
+  directly; `register_before_send` also runs for halted conns, so error
+  responses still produce a stop event with their status.
+- Durations are native-time integers; the logging handler converts them to
+  `duration_ms` for readability.
 
 ## Known limitations
 

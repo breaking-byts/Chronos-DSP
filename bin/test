@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mix test
+# Runs the Elixir suite with the >=80% coverage gate (coveralls.json), then Rust.
+MIX_ENV=test mix coveralls
 
 (
   cd native/chronos_dsp

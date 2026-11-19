@@ -127,30 +127,36 @@ fn render_samples(
 }
 
 fn decode_complex(bin: &Binary<'_>) -> Result<Vec<Complex>, Error> {
-    if bin.len() % 8 != 0 {
+    decode_complex_bytes(bin.as_slice())
+}
+
+// Byte-level decoder, split out so it can be fuzz-tested without a NIF env.
+// f32::from_le_bytes is total (any bit pattern, incl. ±inf/NaN, decodes without
+// panicking); only a mis-sized binary is rejected.
+fn decode_complex_bytes(bytes: &[u8]) -> Result<Vec<Complex>, Error> {
+    if bytes.len() % 8 != 0 {
         return Err(Error::BadArg);
     }
-
-    let mut out = Vec::with_capacity(bin.len() / 8);
-    let bytes = bin.as_slice();
-
+    let mut out = Vec::with_capacity(bytes.len() / 8);
     for chunk in bytes.chunks_exact(8) {
         let re = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         let im = f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
         out.push(Complex { re, im });
     }
-
     Ok(out)
 }
 
 fn decode_paths(bin: &Binary<'_>) -> Result<Vec<Path>, Error> {
-    if bin.len() % 16 != 0 {
+    decode_paths_bytes(bin.as_slice())
+}
+
+// Byte-level decoder, split out for fuzz testing without a NIF env. Total on
+// well-sized binaries: f64/f32::from_le_bytes never panic on any bit pattern.
+fn decode_paths_bytes(bytes: &[u8]) -> Result<Vec<Path>, Error> {
+    if bytes.len() % 16 != 0 {
         return Err(Error::BadArg);
     }
-
-    let mut out = Vec::with_capacity(bin.len() / 16);
-    let bytes = bin.as_slice();
-
+    let mut out = Vec::with_capacity(bytes.len() / 16);
     for chunk in bytes.chunks_exact(16) {
         let delay_s = f64::from_le_bytes([
             chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
@@ -163,7 +169,6 @@ fn decode_paths(bin: &Binary<'_>) -> Result<Vec<Path>, Error> {
             doppler_hz,
         });
     }
-
     Ok(out)
 }
 
@@ -250,5 +255,47 @@ mod tests {
         let out = render_samples(&tx, &paths, 1.0, 0.0, 1);
         assert_eq!(out[0].re, 0.0);
         assert_eq!(out[1].re, 1.0);
+    }
+
+    // Fuzz the binary decoders with pseudo-random bytes (deterministic Rng) and
+    // explicit non-finite float patterns: well-sized binaries must decode
+    // without panicking, mis-sized binaries must be rejected. Rust can represent
+    // ±inf/NaN floats, so those decode to Ok (the Elixir mirror rejects them
+    // because non-finite float terms are unconstructible on that OTP).
+    #[test]
+    fn decode_complex_fuzz_is_total() {
+        let mut rng = Rng::new(0x1234_5678_9abc_def0);
+        for len in 0..=64usize {
+            let bytes: Vec<u8> = (0..len).map(|_| (rng.next_u64() & 0xff) as u8).collect();
+            match decode_complex_bytes(&bytes) {
+                Ok(samples) => {
+                    assert_eq!(len % 8, 0);
+                    assert_eq!(samples.len(), len / 8);
+                }
+                Err(_) => assert_ne!(len % 8, 0),
+            }
+        }
+
+        let mut bin = Vec::new();
+        bin.extend_from_slice(&f32::INFINITY.to_le_bytes());
+        bin.extend_from_slice(&f32::NAN.to_le_bytes());
+        let samples = decode_complex_bytes(&bin).expect("non-finite patterns still decode");
+        assert!(samples[0].re.is_infinite());
+        assert!(samples[0].im.is_nan());
+    }
+
+    #[test]
+    fn decode_paths_fuzz_is_total() {
+        let mut rng = Rng::new(0xdead_beef_cafe_f00d);
+        for len in 0..=96usize {
+            let bytes: Vec<u8> = (0..len).map(|_| (rng.next_u64() & 0xff) as u8).collect();
+            match decode_paths_bytes(&bytes) {
+                Ok(paths) => {
+                    assert_eq!(len % 16, 0);
+                    assert_eq!(paths.len(), len / 16);
+                }
+                Err(_) => assert_ne!(len % 16, 0),
+            }
+        }
     }
 }

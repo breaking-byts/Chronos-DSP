@@ -1,0 +1,1 @@
+{"minimum_coverage": 80, "skip_files": ["lib/chronos/dsp/native.ex"]}
