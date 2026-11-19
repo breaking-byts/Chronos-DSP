@@ -122,7 +122,7 @@ defmodule Chronos.Scenario do
         {-1.2, -2.6, 1.0}
       ],
       normal: {1.0, 0.0, 0.0},
-      attenuation_db: 4.0
+      material: :brick
     })
     |> World.add_wall(%World.Wall{
       id: :wall_y,
@@ -133,7 +133,7 @@ defmodule Chronos.Scenario do
         {-2.6, -1.2, 1.0}
       ],
       normal: {0.0, 1.0, 0.0},
-      attenuation_db: 6.0
+      material: :concrete
     })
   end
 
