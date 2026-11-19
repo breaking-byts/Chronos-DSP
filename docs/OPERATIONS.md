@@ -42,6 +42,23 @@ MIX_ENV=prod mix release
 See [DEPLOYMENT.md](DEPLOYMENT.md) for Docker, Compose, Fly.io, Render,
 rollback, and troubleshooting.
 
+## Smoke test
+
+`bin/smoke` boots a fresh build and verifies NIF-loaded readiness, the dashboard
+HTML, and static assets — it catches missing assets or a NIF that failed to load:
+
+```bash
+bin/smoke            # docker build the release image, then smoke it
+bin/smoke IMAGE      # smoke an existing image (e.g. the pushed GHCR tag)
+bin/smoke --local    # build a fresh mix release and smoke it (no docker needed)
+```
+
+It polls `/readyz` until `nif_loaded=true` with `require_nif=true`, checks
+`/healthz`, the dashboard HTML (`Chronos-DSP` title + `/assets/app.js`), and that
+`/assets/app.js` and `/assets/app.css` serve. The release workflow runs the
+docker mode against the just-pushed amd64 image (`smoke` job, gating the GitHub
+release). `--local` is the no-docker equivalent for workstations.
+
 ## Health
 
 - `GET /healthz`: liveness. Always `200` while the process can answer.
@@ -79,12 +96,21 @@ the redirect, so plain-HTTP internal probes work. Probing `/` will redirect.
 
 ## Observability
 
-There is no metrics backend. Current signals:
+There is no metrics backend yet. Current signals:
 
+- Chronos telemetry events (`Chronos.Telemetry` attaches a `Logger` handler with
+  structured metadata; no JSON-formatter dependency):
+  `[:chronos, :sim, :render, :start/:stop/:exception]` (render timing),
+  `[:chronos, :session, :start/:stop]` (session lifecycle), and
+  `[:chronos, :api, :request, :start/:stop]` (`/api/*` requests via
+  `ChronosWeb.TelemetryPlug`, with method/path/status/duration).
 - Phoenix request logs and endpoint telemetry events.
 - `Logger` warning when the DSP NIF is unavailable (once per VM).
 - `Logger` error with a stacktrace when frame construction fails.
 - `/healthz` and `/readyz` JSON for external probes.
+
+The Elixir suite runs under a >=80% coverage gate (`mix coveralls`,
+`coveralls.json`); `bin/test` enforces it locally and CI runs it on every push.
 
 `bin/profile` measures the render path; `Chronos.Runtime.status/0` supplies the
 health payload.
