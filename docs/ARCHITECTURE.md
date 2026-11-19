@@ -17,7 +17,13 @@ dashboard renders a top-down XY view.
 | --- | --- |
 | `Chronos.World` | Immutable-by-replacement world state: `Node` (`:tx`/`:rx`) and planar `Wall` structs, lookup, and kinematic `step/2`. |
 | `Chronos.Geometry` | Vector, plane, reflection, polygon containment, and segment/polygon intersection math. |
-| `Chronos.Channel` | LOS and first-order reflection paths; occlusion tests; free-space gain, wall attenuation, and Doppler. |
+| `Chronos.Channel` | Orchestrates the four path models (LOS, reflections, diffraction, transmission) per receiver; occlusion tests; strongest-first path cap across all transmitters; shared-option validation. |
+| `Chronos.Channel.Physics` | Shared propagation conventions: free-space gain, dB conversion, path length, Doppler, finite guards, and `validate_opts!/1`. |
+| `Chronos.Channel.Path` | Path struct: delay/gain/Doppler plus kind, bounce order, polyline, and interactions. |
+| `Chronos.Channel.MultiBounce` | Image-source reflections over distinct-wall sequences up to `:max_bounces`, deduplicated before the cap. |
+| `Chronos.Channel.Diffraction` | ITU-R P.526-style knife-edge paths around blocking-wall edges. |
+| `Chronos.Channel.Transmission` | One transmission path per blocked segment, summing crossed-wall transmission losses. |
+| `Chronos.Material` | Illustrative 11-material catalogue: reflection, transmission, and diffraction losses in dB. |
 | `Chronos.Scenario` | Built-in `orbit` / `open_field` worlds, viewport bounds, and per-tick kinematics. |
 | `Chronos.Packing` | Little-endian binary format for complex blocks (8 bytes/sample) and paths (16 bytes/path). |
 | `Chronos.DSP` | NIF entry point, artifact presence/magic validation, one-time fallback warning, and fail-fast in production. |
@@ -57,8 +63,8 @@ tick are UI-local state.
 2. On each tick, `SimServer.next_frame/1` calls `SimFrame.from_world/2` for the
    current world, then advances the scenario by `tick_ms / 1000` seconds.
 3. `SimFrame`:
-   - computes display paths directly from `Channel`/`Geometry` (LOS lines and
-     reflection polylines);
+   - computes display paths directly from `Channel` (LOS lines, reflection,
+     diffraction, and transmission polylines);
    - builds a deterministic QPSK block, packs it, and calls `Sim.render/3`;
    - demodulates the first receiver's samples and computes BER, path count, and
      mean received power;
@@ -74,21 +80,50 @@ tick are UI-local state.
 
 ## Channel model
 
+`Chronos.Channel` composes four path models that share the conventions in
+`Chronos.Channel.Physics`:
+
+| Model | Module | Produces |
+| --- | --- | --- |
+| Line of sight | `Chronos.Channel` | `kind: :los` when the direct segment is clear |
+| Reflections | `Chronos.Channel.MultiBounce` | `kind: :reflection`, orders 1..`:max_bounces` |
+| Diffraction | `Chronos.Channel.Diffraction` | `kind: :diffraction` around a blocking wall |
+| Transmission | `Chronos.Channel.Transmission` | `kind: :transmission` through a blocking wall |
+
 - Free-space amplitude is `1 / distance`, normalized so a one-metre path has
   unit gain. It is not a calibrated FSPL link budget (no antenna gains,
   wavelength term, or transmit power).
-- A wall blocks the LOS path when the segment intersects its polygon.
-- Each wall yields at most one first-order reflection: mirror the transmitter
-  across the wall plane, intersect the mirrored segment with the plane, require
-  the hit point to lie inside the polygon, and reject paths whose legs are
-  occluded by another wall.
-- Reflection gain is `1 / total_distance` multiplied by the wall's linear
-  attenuation.
+- A wall blocks the LOS path when the segment intersects its polygon. A point
+  on the polygon boundary counts as inside the polygon, so a bounce or a
+  transmission that lands exactly on an edge is a hit.
+- Reflections use the image-source method: mirror the transmitter across the
+  walls of an ordered sequence, intersect the mirrored segment with the last
+  wall, then back-track the bounce points. Every bounce point must lie inside
+  its wall polygon and every leg must be clear of the other walls.
+- Reflection gain is `1 / total_distance` multiplied by the linear loss of
+  every wall the path touches.
+- Diffraction uses an ITU-R P.526-style single knife edge: for each blocking
+  wall, the edge closest to the direct line gives a Fresnel parameter, and the
+  knife-edge loss is added to the wall material's diffraction loss. A finite 3D
+  wall can straddle the direct line, so the obstruction height is the
+  (unsigned) distance from that line to the closest edge of the wall, and the
+  cheapest edge wins.
+- Transmission paths exist only when the direct segment is blocked. There is one
+  per blocked segment, and it accumulates the transmission loss of every wall
+  it crosses exactly once.
+- Walls carry a material (`Chronos.Material`) with reflection, transmission, and
+  diffraction losses in dB. An explicit `attenuation_db` on a wall overrides
+  the material's reflection loss only when finite and non-negative; the other
+  two always come from the material. The catalogue values are illustrative,
+  not calibrated measurements.
 - Doppler is `dot(relative_velocity, path_direction) / wavelength`, with carrier
-  frequency defaulting to 2.4 GHz and `c` to 299,792,458 m/s. Reflection
-  Doppler uses the incoming and outgoing legs separately.
-- No diffraction, penetration, multi-bounce, material database, or calibrated
-  path-loss exponent.
+  frequency defaulting to 2.4 GHz and `c` to 299,792,458 m/s. The transmitter
+  velocity is projected on the first leg and the receiver velocity on the last.
+- `Channel.paths_for_rx/3` caps the paths it returns (`:max_paths`, default 32)
+  and keeps the strongest ones first. `:diffraction` and `:transmission` can be
+  switched off per call.
+- Still missing: a frequency-selective channel, a calibrated link budget, and
+  height-aware 3D rendering.
 
 ## DSP contract
 
@@ -131,8 +166,10 @@ does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
 
 ## Known limitations
 
-- One reflection per wall; single transmitter/receiver per path computation in
-  the demo, though `World` supports multiple nodes.
+- Reflections are distinct-wall sequences up to `:max_bounces` (default 2);
+  there are no repeated-wall bounces and no full UTD diffraction (knife-edge
+  only). The built-in scenarios use one transmitter and one receiver, though
+  `World` and `Channel` support multiple nodes.
 - The page renders a top-down projection; Z affects geometry and path delays but
   not the rendered layout.
 - Per-connection sessions are in-memory only. There is no persistence,
