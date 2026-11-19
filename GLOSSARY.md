@@ -56,6 +56,11 @@ is clamped to 20–2000 ms.
 **Frame**:
 One rendered snapshot at a tick: paths, DSP samples, and metrics.
 
+**Height-aware 2D**:
+A top-down XY rendering that conveys z through visual cues while keeping the
+layout planar.
+_Avoid_: 2.5D, pseudo-3D
+
 ### Engine
 
 **Reference fallback**:
@@ -80,6 +85,10 @@ _Avoid_: database, save library
 Dropping the oldest scenes (by modification time) when a scene-store cap is
 exceeded; oldest first.
 _Avoid_: garbage collection, pruning
+
+**Dirty state**:
+The live world differs from the last saved or loaded scene snapshot.
+_Avoid_: unsaved changes, modified flag
 
 **Telemetry event**:
 A named runtime observation — render timing, session lifecycle, or an API

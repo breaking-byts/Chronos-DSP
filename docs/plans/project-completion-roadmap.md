@@ -75,7 +75,13 @@ scaffolding.
    calibrated coefficients are still future work.
 5. Calibrated link budget: antenna gains, transmit power, wavelength term, and
    a comparison against a simple ray-tracing reference.
-6. Optional 3D/height-aware rendering instead of the current XY projection.
+6. Height-aware rendering, staged per the #20 design lock
+   ([spec](../design/interactive-editing.md)): height-aware 2D now — z shown
+   through node size/color and wall labels, edited via a panel field; an
+   isometric Canvas toggle next via the #27 prototype; full 3D remains a
+   future aspiration ("someday") using the vendored three.js r185 escape hatch
+   (WebGL2-gated, Canvas2D fallback) per `docs/research/3d-rendering.md`
+   (branch `research/3d-rendering`). ECharts GL rejected.
 
 ## Performance and scale
 
