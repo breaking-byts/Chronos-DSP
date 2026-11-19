@@ -1,0 +1,64 @@
+name: Bug report
+description: Something behaves incorrectly in the simulator, API, dashboard, or release.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Where you can, use the project's vocabulary
+        ([GLOSSARY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/GLOSSARY.md)):
+        scene, scenario, path, material, session, tick.
+
+        **Security vulnerability?** Do not file a public issue — use the private
+        reporting path in
+        [docs/SECURITY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/docs/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >
+        Commands, curl calls, or UI steps. Include the scenario (`orbit` /
+        `open_field`), seed, and tick when relevant.
+      placeholder: |
+        1. bin/setup && mix phx.server
+        2. curl -s localhost:4000/api/simulate -H 'content-type: application/json' -d '{"tick": 10, "seed": 7}'
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Release tag, container image tag, or commit SHA.
+      placeholder: "v0.2.0, ghcr.io/breaking-byts/chronos-dsp:latest, or 9136308"
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      description: What does the dashboard badge (or `/readyz` `nif_loaded`) report?
+      options:
+        - Native NIF
+        - Reference fallback
+        - API only / not applicable
+        - Unknown
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: >
+        Relevant Logger output or the JSON error body. Redact secrets
+        (`SECRET_KEY_BASE`, signing salts) before pasting.
+      render: shell
+    validations:
+      required: false

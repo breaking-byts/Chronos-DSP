@@ -68,3 +68,34 @@ Bit-level agreement between the Rust NIF and the reference fallback: same
 xorshift64* RNG, sample order, interpolation, Doppler rotation, and noise
 scaling.
 _Avoid_: equivalence (unqualified)
+
+### Store and operations
+
+**Scene store**:
+The capped, file-backed store of named scenes: anonymous writes, oldest-first
+eviction, ephemeral by default.
+_Avoid_: database, save library
+
+**Eviction**:
+Dropping the oldest scenes (by modification time) when a scene-store cap is
+exceeded; oldest first.
+_Avoid_: garbage collection, pruning
+
+**Telemetry event**:
+A named runtime observation — render timing, session lifecycle, or an API
+request — emitted with measurements and structured metadata for logging.
+_Avoid_: metric (unqualified), log line
+
+**Coverage gate**:
+The minimum total Elixir test coverage (80%) the suite must reach to pass.
+_Avoid_: coverage target
+
+**Property test**:
+A test that checks an invariant over generated inputs instead of fixed
+examples.
+_Avoid_: random test (unqualified)
+
+**Smoke test**:
+A shallow boot-and-serve check of a fresh release: readiness with the NIF
+loaded, the dashboard HTML, and static assets.
+_Avoid_: sanity check, integration test (for the release check)

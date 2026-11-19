@@ -43,14 +43,26 @@ a deterministic pure-Elixir reference implementation otherwise.
 - **Operational endpoints**: JSON liveness (`/healthz`) and readiness
   (`/readyz`), the latter failing with `503` when the NIF is required but not
   loadable.
+- **Headless JSON API** (`POST /api/simulate`): run a built-in scenario without
+  a browser, with bounded, validated parameters and uniform JSON errors. See
+  [JSON API](#json-api).
+- **CSV export** (`GET /api/export/{metrics,history,samples}`): metrics, tick
+  history, and complex samples as CSV. See [CSV export](#csv-export).
+- **Named-scene store** (`GET/POST/DELETE /api/scenes`): capped, ephemeral
+  file-backed scenes for the anonymous showcase (ADR 0001). See
+  [Named scenes](#named-scenes).
+- **Quality gates**: StreamData property tests, an >=80% coverage gate,
+  `:telemetry` events with structured logging, and a release smoke test
+  (`bin/smoke`). See [Tests and checks](#tests-and-checks).
 
 Physics scope: the channel covers line-of-sight, multi-order reflections
 (default up to two bounces), knife-edge diffraction, wall transmission, and a
 material catalogue with per-material reflection, transmission, and diffraction
-losses. The losses are illustrative rather than calibrated, and there is no
-frequency-selective channel, no antenna/link budget, and no 3D height-aware
-rendering yet. The signal chain is QPSK over a complex baseband block; there is
-no OFDM or FEC.
+losses. Diffraction is the ITU-R P.526-style single knife-edge model, not full
+UTD. The material losses are illustrative rather than calibrated measurements,
+and there is no frequency-selective channel, no antenna/link budget, and no 3D
+height-aware rendering yet. The signal chain is QPSK over a complex baseband
+block; there is no OFDM or FEC.
 
 ## Architecture
 
@@ -195,6 +207,7 @@ mix format --check-formatted
 (cd native/chronos_dsp && cargo clippy --all-targets --all-features -- -D warnings)
 
 bin/profile                               # throughput profile script
+bin/smoke --local                         # release smoke test (no docker)
 ```
 
 The Elixir suite has 316 tests (including 28 StreamData property tests) and the
@@ -206,7 +219,11 @@ export (metrics/history/samples), the capped named-scene store, and their
 uniform error shapes, and health endpoints. Property tests cover packing
 round-trips and binary-decoder fuzzing, geometry invariants, scene bounds, and
 channel-option validation. Coverage is gated at 80% via ExCoveralls
-(`coveralls.json`), enforced in CI and `bin/test`.
+(`coveralls.json`), enforced in CI and `bin/test`. The release smoke test
+(`bin/smoke`) boots a fresh build and verifies NIF-loaded readiness, the
+dashboard HTML, and static assets; the release workflow runs it against the
+pushed image before creating the GitHub Release. See
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 Telemetry: render timing (`chronos.sim.render`), session lifecycle
 (`chronos.session`), and `/api/*` request metrics (`chronos.api.request`) are
@@ -258,6 +275,7 @@ Production (`MIX_ENV=prod`) reads these at boot in `config/runtime.exs`.
 | `PHX_URL_PORT` | no | `443` when forced SSL, else `PORT` | Public URL port (not the listen port). |
 | `RUNTIME_ENV` | no | `prod` | Label returned by the health endpoints. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `notice`, `warning`, `error`, or `critical`. |
+| `SCENE_DIR` | no | `priv/scenes` inside the release | Named-scene store directory. Ephemeral by default (ADR 0001); point at a persistent volume to survive redeploys. See [Named scenes](#named-scenes). |
 | `ERLANG_ROOT` | no | Erlang root | Base for Rustler include/lib paths at build time. |
 | `ERL_EI_INCLUDE_DIR` | no | `$ERLANG_ROOT/usr/include` | Override Rustler `erl_nif.h` include path. |
 | `ERL_EI_LIBDIR` | no | `$ERLANG_ROOT/usr/lib` | Override Rustler link path. |
@@ -275,20 +293,33 @@ force SSL, and does not require secrets.
 ## Project layout
 
 ```text
-lib/chronos/              channel, geometry, world, scenarios, DSP, packing,
-                          modem, metrics, scene projection, frames, supervision,
-                          telemetry logging
-lib/chronos_web/          endpoint, router, health controller, LiveView, layout,
+lib/chronos/              channel + path models, material catalogue, geometry,
+                          world, scenarios, DSP, packing, modem, metrics,
+                          export, scene store, scene projection, frames,
+                          supervision, telemetry logging
+lib/chronos_web/          endpoint, router, health controller, API controllers
+                          (simulate/export/scenes), LiveView, layout,
                           API telemetry plug
 native/chronos_dsp/       Rust crate (rustler NIF, 4 unit tests)
 priv/static/              app.js (LiveView hooks), app.css, vendored ECharts
 config/                   compile-time and runtime configuration
 test/                     ExUnit suites for channel, DSP, geometry, modem,
                           packing, scene, frames, server, LiveView, health,
-                          telemetry, plus StreamData property tests
-docs/                     architecture, deployment, operations, security, plans
-bin/                      setup, test, profile helpers
+                          telemetry, JSON API, CSV export, scene store, plus
+                          StreamData property tests
+docs/                     architecture, deployment, operations, security,
+                          ADRs, agent docs, plans
+bin/                      setup, test, smoke, profile helpers
 ```
+
+## Contributing
+
+Setup, checks, and PR expectations live in [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues use the bug/feature forms under `.github/ISSUE_TEMPLATE/`; the triage
+vocabulary is in [docs/agents/triage-labels.md](docs/agents/triage-labels.md)
+and tracker conventions in
+[docs/agents/issue-tracker.md](docs/agents/issue-tracker.md). Domain language
+is fixed by [GLOSSARY.md](GLOSSARY.md).
 
 ## License
 
