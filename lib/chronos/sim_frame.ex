@@ -7,7 +7,8 @@ defmodule Chronos.SimFrame do
   spectrum) for the first receiver.
 
   The JSON API reuses `metrics_and_dsp/2` to compute only the metrics and DSP
-  snapshot, without the scene encoding or the display-path pass.
+  snapshot, without the scene encoding or the display-path pass. The CSV export
+  endpoints use `metrics/2`, which also skips the DSP snapshot.
   """
 
   alias Chronos.Channel
@@ -80,11 +81,33 @@ defmodule Chronos.SimFrame do
   """
   @spec metrics_and_dsp(World.t(), keyword()) :: {map(), map()}
   def metrics_and_dsp(%World{} = world, opts) do
+    case render_metrics(world, opts) do
+      {:empty, metrics} -> {metrics, empty_dsp()}
+      {:ok, metrics, samples} -> {metrics, build_dsp(samples)}
+    end
+  end
+
+  @doc """
+  Computes only the link metrics for the first receiver, skipping the DSP
+  snapshot. The CSV export endpoints emit metrics rows and never return
+  constellation/waveform/spectrum data, so they avoid the spectrum transform.
+  Takes the same options as `from_world/2`: `:tick` is required; `:seed`,
+  `:sample_rate`, and `:noise_power` are optional.
+  """
+  @spec metrics(World.t(), keyword()) :: map()
+  def metrics(%World{} = world, opts) do
+    case render_metrics(world, opts) do
+      {:empty, metrics} -> metrics
+      {:ok, metrics, _samples} -> metrics
+    end
+  end
+
+  defp render_metrics(world, opts) do
     tick = Keyword.fetch!(opts, :tick)
     seed = Keyword.get(opts, :seed, 1)
     sample_rate = Keyword.get(opts, :sample_rate, @default_sample_rate)
     noise_power = Keyword.get(opts, :noise_power, @default_noise_power)
-    build_metrics_and_dsp(world, seed + tick, sample_rate, noise_power)
+    build_metrics(world, seed + tick, sample_rate, noise_power)
   end
 
   # The dashboard draws the same paths the DSP renders, so the display paths
@@ -101,15 +124,13 @@ defmodule Chronos.SimFrame do
     end)
   end
 
-  defp build_metrics_and_dsp(world, seed, sample_rate, noise_power) do
+  defp build_metrics(world, seed, sample_rate, noise_power) do
     case nodes_of_type(world, :rx) do
       [] ->
-        {empty_metrics(), empty_dsp()}
+        {:empty, empty_metrics()}
 
       [rx | _] ->
-        bits = default_bits()
-        symbols = Modem.qpsk_modulate(bits)
-        tx_block = Packing.pack_complex(symbols)
+        {bits, tx_block} = default_tx_block(@bit_count)
 
         sim_opts = [
           sample_rate: sample_rate,
@@ -130,7 +151,7 @@ defmodule Chronos.SimFrame do
           rx_id: to_string(rx.id)
         }
 
-        {metrics, build_dsp(samples)}
+        {:ok, metrics, samples}
     end
   end
 
@@ -209,9 +230,17 @@ defmodule Chronos.SimFrame do
     end
   end
 
-  defp default_bits do
-    Stream.cycle([0, 0, 0, 1, 1, 1, 1, 0])
-    |> Enum.take(@bit_count)
+  @bit_pattern [0, 0, 0, 1, 1, 1, 1, 0]
+
+  @doc """
+  Builds the deterministic QPSK test block shared by the frame and CSV export:
+  the fixed bit pattern cycled to `bit_count` bits, modulated and packed.
+  Returns `{bits, packed_block}` so callers can compute BER against `bits`.
+  """
+  @spec default_tx_block(pos_integer()) :: {[0 | 1], binary()}
+  def default_tx_block(bit_count) do
+    bits = @bit_pattern |> Stream.cycle() |> Enum.take(bit_count)
+    {bits, bits |> Modem.qpsk_modulate() |> Packing.pack_complex()}
   end
 
   defp empty_metrics do

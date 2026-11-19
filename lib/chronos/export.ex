@@ -1,6 +1,6 @@
 defmodule Chronos.Export do
   @moduledoc """
-  CSV and JSON export helpers for simulation results.
+  CSV export helpers for simulation results.
   """
 
   @metrics_header "tick,time_s,rx_id,path_count,received_power,ber"

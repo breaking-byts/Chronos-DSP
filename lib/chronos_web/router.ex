@@ -14,7 +14,7 @@ defmodule ChronosWeb.Router do
   end
 
   pipeline :export do
-    plug(:accepts, ["csv", "json"])
+    plug(:accepts, ["csv"])
   end
 
   scope "/", ChronosWeb do
@@ -27,6 +27,7 @@ defmodule ChronosWeb.Router do
   scope "/api", ChronosWeb do
     pipe_through(:export)
     get("/export/metrics", ExportController, :metrics)
+    get("/export/history", ExportController, :history)
     get("/export/samples", ExportController, :samples)
   end
 

@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uniform JSON error rendering (`ChronosWeb.ErrorJSON`) so API 404/406/413
   responses share the `{"error": message}` shape; browsers that accept HTML
   still receive HTML error pages.
+- CSV export endpoints (`GET /api/export/metrics`, `/api/export/history`,
+  `/api/export/samples`): single-frame metrics, a bounded multi-tick metrics
+  history (at most 1000 rows, stepped incrementally), and the first receiver's
+  complex samples. CSV-only content negotiation; parameters from the query
+  string.
 
 ### Changed
 
@@ -41,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Plug.MethodOverride` and format negotiation.
 - `Chronos.SimFrame.metrics_and_dsp/2` exposes the metrics/DSP computation so
   the API reuses it without building display geometry.
+- `Chronos.SimFrame.metrics/2` computes metrics without the DSP snapshot, so
+  CSV export avoids the spectrum transform.
+- The scenario whitelist is sourced from `Chronos.Scenario.ids/0` in both the
+  simulation and export controllers instead of duplicated literals.
+- CSV export errors use the uniform `{"error": message}` JSON shape, and the
+  export pipeline accepts CSV only (a JSON `Accept` header returns 406).
 - `Chronos.Channel.paths_for_rx/3` now returns line-of-sight, reflection,
   diffraction, and transmission paths, capped by `:max_paths` (default 32) with
   the strongest paths kept first. `:diffraction` and `:transmission` can be

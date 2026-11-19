@@ -1,26 +1,32 @@
 defmodule ChronosWeb.ExportController do
   @moduledoc """
   Read-only HTTP endpoints for exporting simulation results as CSV.
+
+  All three endpoints are CSV-only (`Accept: text/csv`); they take their
+  parameters from the query string and reject reserved `_`-prefixed fields via
+  `ChronosWeb.ApiParams.RequestPlug`. Integer query parameters are validated by
+  `ChronosWeb.ApiParams.parse_query_integer/5` and errors use the same uniform
+  `{"error": message}` JSON shape as the rest of the JSON API.
   """
 
   use Phoenix.Controller
 
   alias Chronos.Export
-  alias Chronos.Modem
   alias Chronos.Packing
   alias Chronos.Scenario
   alias Chronos.Sim
   alias Chronos.SimFrame
   alias Chronos.World
+  alias ChronosWeb.ApiParams
 
   @sample_rate 48_000.0
   @noise_power 0.01
   @step_seconds 0.1
   @sample_count 512
-  @bit_pattern [0, 0, 0, 1, 1, 1, 1, 0]
-  @scenarios ["orbit", "open_field"]
+  @scenario_ids Scenario.ids()
   @max_ticks 100_000
-  @max_seed 4_294_967_295
+  @max_seed ApiParams.max_seed()
+  @max_history_rows 1_000
 
   @doc """
   Exports one frame of receiver metrics as CSV.
@@ -39,17 +45,27 @@ defmodule ChronosWeb.ExportController do
   def metrics(conn, params) do
     with {:ok, ticks, seed, scenario} <- parse_common_params(params) do
       world = stepped_world(scenario, ticks)
+      send_csv(conn, Export.metrics_csv([metric_row(world, ticks, seed)]), "metrics.csv")
+    else
+      {:error, message} -> send_error(conn, message)
+    end
+  end
 
-      frame =
-        SimFrame.from_world(world,
-          tick: ticks,
-          seed: seed,
-          sample_rate: @sample_rate,
-          noise_power: @noise_power
-        )
+  @doc """
+  Exports a multi-tick metrics history as CSV, one row per sampled tick.
 
-      metric = Map.merge(frame.metrics, %{tick: frame.tick, time_s: frame.time_s})
-      send_csv(conn, Export.metrics_csv([metric]), "metrics.csv")
+  `from` and `to` are inclusive tick bounds (0..#{@max_ticks}, defaults 0 and
+  100) with `to >= from`; `step` (1..#{@max_ticks}, default 1) selects every
+  nth tick. At most #{@max_history_rows} rows are emitted. The world is stepped
+  incrementally from `from`, so the cost is bounded by `to` rather than
+  re-simulating from zero for every row. `seed` and `scenario` match the
+  single-frame endpoints.
+  """
+  @spec history(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def history(conn, params) do
+    with {:ok, from, to, step, seed, scenario} <- parse_history_params(params) do
+      rows = history_rows(scenario, from, to, step, seed)
+      send_csv(conn, Export.metrics_csv(rows), "history.csv")
     else
       {:error, message} -> send_error(conn, message)
     end
@@ -75,7 +91,7 @@ defmodule ChronosWeb.ExportController do
       world = stepped_world(scenario, ticks)
       rx = first_receiver(world)
 
-      tx_block = tx_block()
+      {_bits, tx_block} = SimFrame.default_tx_block(@sample_count * 2)
 
       rx_block =
         world
@@ -94,57 +110,87 @@ defmodule ChronosWeb.ExportController do
   end
 
   defp parse_common_params(params) do
-    with {:ok, ticks} <- parse_integer(params, "ticks", 0, 0, @max_ticks),
-         {:ok, seed} <- parse_integer(params, "seed", 1, 0, @max_seed),
+    with {:ok, ticks} <- ApiParams.parse_query_integer(params, "ticks", 0, 0, @max_ticks),
+         {:ok, seed} <- ApiParams.parse_query_integer(params, "seed", 1, 0, @max_seed),
          {:ok, scenario} <- parse_scenario(params) do
       {:ok, ticks, seed, scenario}
     end
   end
 
-  defp parse_limit(params) do
-    parse_integer(params, "limit", 128, 1, 512)
+  defp parse_history_params(params) do
+    with {:ok, from} <- ApiParams.parse_query_integer(params, "from", 0, 0, @max_ticks),
+         {:ok, to} <- ApiParams.parse_query_integer(params, "to", 100, 0, @max_ticks),
+         {:ok, step} <- ApiParams.parse_query_integer(params, "step", 1, 1, @max_ticks),
+         {:ok, seed} <- ApiParams.parse_query_integer(params, "seed", 1, 0, @max_seed),
+         {:ok, scenario} <- parse_scenario(params),
+         :ok <- validate_history_range(from, to, step) do
+      {:ok, from, to, step, seed, scenario}
+    end
   end
 
-  defp parse_integer(params, key, default, minimum, maximum) do
-    case Map.get(params, key) do
-      nil ->
-        {:ok, default}
+  defp validate_history_range(from, to, _step) when to < from do
+    {:error, "invalid history range: to must be greater than or equal to from"}
+  end
 
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {integer, ""} when integer >= minimum and integer <= maximum ->
-            {:ok, integer}
+  defp validate_history_range(from, to, step) do
+    rows = div(to - from, step) + 1
 
-          _ ->
-            {:error, invalid_integer_message(key, minimum, maximum)}
-        end
-
-      _ ->
-        {:error, invalid_integer_message(key, minimum, maximum)}
+    if rows > @max_history_rows do
+      {:error,
+       "invalid history range: at most #{@max_history_rows} rows (reduce the range or increase step)"}
+    else
+      :ok
     end
+  end
+
+  defp parse_limit(params) do
+    ApiParams.parse_query_integer(params, "limit", 128, 1, 512)
   end
 
   defp parse_scenario(params) do
     case Map.get(params, "scenario", "orbit") do
-      scenario when scenario in @scenarios -> {:ok, scenario}
-      _ -> {:error, "invalid scenario: expected one of orbit, open_field"}
+      scenario when scenario in @scenario_ids -> {:ok, scenario}
+      _ -> {:error, "invalid scenario: expected one of #{Enum.join(@scenario_ids, ", ")}"}
     end
   end
 
-  defp invalid_integer_message(key, minimum, maximum) do
-    "invalid #{key}: expected an integer between #{minimum} and #{maximum}"
+  defp metric_row(world, tick, seed) do
+    metrics =
+      SimFrame.metrics(world,
+        tick: tick,
+        seed: seed,
+        sample_rate: @sample_rate,
+        noise_power: @noise_power
+      )
+
+    Map.merge(metrics, %{tick: tick, time_s: world.time_s})
+  end
+
+  defp history_rows(scenario, from, to, step, seed) do
+    world = stepped_world(scenario, from)
+    ticks = Enum.to_list(from..to//step)
+    opts = %{scenario: scenario, step: step, seed: seed}
+    collect_history(ticks, world, opts, [])
+  end
+
+  defp collect_history([], _world, _opts, acc), do: Enum.reverse(acc)
+
+  defp collect_history([tick | rest], world, opts, acc) do
+    row = metric_row(world, tick, opts.seed)
+    next_world = if rest == [], do: world, else: step_ticks(world, opts.scenario, opts.step)
+    collect_history(rest, next_world, opts, [row | acc])
   end
 
   defp stepped_world(scenario, ticks) do
-    world = Scenario.world(scenario)
+    step_ticks(Scenario.world(scenario), scenario, ticks)
+  end
 
-    if ticks == 0 do
-      world
-    else
-      Enum.reduce(1..ticks, world, fn _tick, current ->
-        Scenario.step(current, scenario, @step_seconds)
-      end)
-    end
+  defp step_ticks(world, _scenario, 0), do: world
+
+  defp step_ticks(world, scenario, count) do
+    Enum.reduce(1..count, world, fn _tick, current ->
+      Scenario.step(current, scenario, @step_seconds)
+    end)
   end
 
   defp first_receiver(world) do
@@ -152,17 +198,6 @@ defmodule ChronosWeb.ExportController do
     |> World.nodes_by_type(:rx)
     |> Enum.sort_by(&to_string(&1.id))
     |> List.first()
-  end
-
-  defp tx_block do
-    bits =
-      @bit_pattern
-      |> Stream.cycle()
-      |> Enum.take(@sample_count * 2)
-
-    bits
-    |> Modem.qpsk_modulate()
-    |> Packing.pack_complex()
   end
 
   defp send_csv(conn, csv, filename) do
@@ -174,7 +209,7 @@ defmodule ChronosWeb.ExportController do
 
   defp send_error(conn, message) do
     conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(400, message)
+    |> put_status(:bad_request)
+    |> json(%{error: message})
   end
 end
