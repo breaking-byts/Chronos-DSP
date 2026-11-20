@@ -609,6 +609,53 @@ button:focus-visible {
   background: var(--cyan-soft);
 }
 
+/* Export CSV dropdown (#37): anchored to its control-bar button. */
+.export-control {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.export-menu a {
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.export-menu a:hover {
+  background: var(--cyan-soft);
+  color: #a5f3fc;
+}
+
+.export-note {
+  margin: 4px 0 0;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.export-note.is-warning {
+  color: var(--orange);
+}
+
 .control-group {
   display: flex;
   flex-direction: column;
