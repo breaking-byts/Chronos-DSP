@@ -35,6 +35,61 @@
     return number.toFixed(2);
   }
 
+  // Drag editing (#34). These constants mirror Chronos.SceneEdit server-side.
+  // Hit radius is in CSS pixels; the canvas transform scales by DPR, so the
+  // effective device-pixel radius is HIT_RADIUS_PX * dpr (DPR-scaled).
+  const HIT_RADIUS_PX = 12;
+  const DRAG_BOUNDS_MARGIN = 0.25;
+  const MIN_WALL_EDGE = 0.1;
+
+  function dist2(ax, ay, bx, by) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return dx * dx + dy * dy;
+  }
+
+  function pointSegmentDistance(px, py, ax, ay, bx, by) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const len2 = abx * abx + aby * aby;
+    const t = len2 > 0 ? clamp(((px - ax) * abx + (py - ay) * aby) / len2, 0, 1) : 0;
+    return Math.sqrt(dist2(px, py, ax + abx * t, ay + aby * t));
+  }
+
+  function snapValue(value, step) {
+    return Math.round(value / step) * step;
+  }
+
+  function clampAxis(value, lo, hi) {
+    // lo > hi means the entity is wider than the clamp range; hold it still.
+    return lo > hi ? 0 : clamp(value, lo, hi);
+  }
+
+  // Push a moved wall vertex away from its cyclic neighbours so no edge
+  // collapses below MIN_WALL_EDGE. `vertices` are [x, y, z] arrays.
+  function guardWallVertex(x, y, vertices, index) {
+    const count = vertices.length;
+    if (count < 2) return [x, y];
+    const neighbours = [(index - 1 + count) % count, (index + 1) % count];
+    neighbours.forEach((neighbour) => {
+      const ax = vertices[neighbour][0];
+      const ay = vertices[neighbour][1];
+      let dx = x - ax;
+      let dy = y - ay;
+      let distance = Math.hypot(dx, dy);
+      if (distance < MIN_WALL_EDGE) {
+        if (distance < 1e-9) {
+          dx = 1;
+          dy = 0;
+          distance = 1;
+        }
+        x = ax + (dx / distance) * MIN_WALL_EDGE;
+        y = ay + (dy / distance) * MIN_WALL_EDGE;
+      }
+    });
+    return [x, y];
+  }
+
   const SimCanvas = {
     mounted() {
       this.canvas = this.el.querySelector("canvas");
@@ -44,9 +99,16 @@
       this.width = 1;
       this.height = 1;
       this.dpr = 1;
+      this.view = null;
+      this.drag = null;
+      this.snap = this.el.dataset.snap === "true";
 
       this.scheduleDraw = this.scheduleDraw.bind(this);
       this.onResize = this.onResize.bind(this);
+      this.onPointerDown = this.onPointerDown.bind(this);
+      this.onPointerMove = this.onPointerMove.bind(this);
+      this.onPointerUp = this.onPointerUp.bind(this);
+      this.onPointerCancel = this.onPointerCancel.bind(this);
       this.observer = new ResizeObserver(this.onResize);
       this.observer.observe(this.el);
 
@@ -54,6 +116,18 @@
         this.frame = frame;
         this.scheduleDraw();
       });
+
+      this.handleEvent("snap_state", ({ enabled }) => {
+        this.snap = Boolean(enabled);
+      });
+
+      if (this.canvas) {
+        // Desktop mouse only (#34): touch/pen pointers are ignored.
+        this.canvas.addEventListener("pointerdown", this.onPointerDown);
+        this.canvas.addEventListener("pointermove", this.onPointerMove);
+        this.canvas.addEventListener("pointerup", this.onPointerUp);
+        this.canvas.addEventListener("pointercancel", this.onPointerCancel);
+      }
 
       this.onResize();
     },
@@ -99,10 +173,42 @@
       const frame = this.frame;
 
       if (!frame) {
+        this.view = null;
         this.drawPlaceholder(ctx, w, h, "Waiting for the first simulation frame…");
         return;
       }
 
+      const view = this.computeView(frame, w, h);
+      this.view = view;
+
+      // While dragging, overlay the local preview on the latest frame. No
+      // server round-trip happens per move; paths stay stale until release.
+      let nodes = frame.nodes || [];
+      let walls = frame.walls || [];
+      const preview = this.drag && this.drag.preview;
+      if (preview) {
+        if (preview.kind === "node") {
+          nodes = nodes.map((node) =>
+            node.id === preview.id
+              ? { ...node, pos: [preview.pos[0], preview.pos[1], node.pos[2]] }
+              : node
+          );
+        } else {
+          walls = walls.map((wall) =>
+            wall.id === preview.id ? { ...wall, vertices: preview.vertices } : wall
+          );
+        }
+      }
+
+      this.drawGrid(ctx, { w, h, ...view });
+      this.drawWalls(ctx, walls, view.project);
+      this.drawPaths(ctx, frame.paths || [], view.project);
+      this.drawNodes(ctx, nodes, view.project);
+      this.drawScaleBar(ctx, { w, h, ...view });
+    },
+
+    // Shared world<->screen transform, also used for hit-testing and drags.
+    computeView(frame, w, h) {
       const bounds = frame.bounds || { min: [-5, -5], max: [5, 5] };
       const minX = Number(bounds.min[0]);
       const minY = Number(bounds.min[1]);
@@ -119,12 +225,14 @@
         originX + (Number(x) - minX) * scale,
         h - originY - (Number(y) - minY) * scale
       ];
+      const unproject = (px, py) => [
+        minX + (px - originX) / scale,
+        minY + (h - originY - py) / scale
+      ];
+      // Same spacing the grid is drawn with, so snapping lands on grid lines.
+      const gridStep = niceStep(Math.max(spanX, spanY), scale, 56);
 
-      this.drawGrid(ctx, { w, h, minX, minY, maxX, maxY, scale, project });
-      this.drawWalls(ctx, frame.walls || [], project);
-      this.drawPaths(ctx, frame.paths || [], project);
-      this.drawNodes(ctx, frame.nodes || [], project);
-      this.drawScaleBar(ctx, { w, h, scale, minX, minY, maxX, maxY });
+      return { bounds, minX, minY, maxX, maxY, scale, project, unproject, gridStep };
     },
 
     drawPlaceholder(ctx, w, h, message) {
@@ -318,11 +426,252 @@
       ctx.restore();
     },
 
+    // --- Drag editing (#34): local preview, one commit on release ---------
+
+    pointerPos(event) {
+      const rect = this.canvas.getBoundingClientRect();
+      return [event.clientX - rect.left, event.clientY - rect.top];
+    },
+
+    // Nearest node, then wall endpoint, then whole wall, within the hit
+    // radius (CSS px; DPR-scaled through the canvas transform).
+    hitTest(px, py) {
+      const view = this.view;
+      const frame = this.frame;
+      if (!view || !frame) return null;
+      const radius2 = HIT_RADIUS_PX * HIT_RADIUS_PX;
+
+      let best = null;
+      let bestD2 = radius2;
+      (frame.nodes || []).forEach((node) => {
+        if (!node.pos) return;
+        const [x, y] = view.project(node.pos);
+        const d2 = dist2(px, py, x, y);
+        if (d2 <= bestD2) {
+          bestD2 = d2;
+          best = { kind: "node", id: node.id };
+        }
+      });
+      if (best) return best;
+
+      best = null;
+      bestD2 = radius2;
+      (frame.walls || []).forEach((wall) => {
+        (wall.vertices || []).forEach((vertex, index) => {
+          const [x, y] = view.project(vertex);
+          const d2 = dist2(px, py, x, y);
+          if (d2 <= bestD2) {
+            bestD2 = d2;
+            best = { kind: "wall_vertex", id: wall.id, index };
+          }
+        });
+      });
+      if (best) return best;
+
+      let bestDistance = HIT_RADIUS_PX;
+      (frame.walls || []).forEach((wall) => {
+        const points = (wall.vertices || []).map(view.project);
+        if (points.length < 2) return;
+        for (let i = 0; i < points.length; i += 1) {
+          const a = points[i];
+          const b = points[(i + 1) % points.length];
+          const distance = pointSegmentDistance(px, py, a[0], a[1], b[0], b[1]);
+          if (distance <= bestDistance) {
+            bestDistance = distance;
+            best = { kind: "wall", id: wall.id };
+          }
+        }
+      });
+      return best;
+    },
+
+    onPointerDown(event) {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (!this.frame || !this.view || this.drag) return;
+      const [px, py] = this.pointerPos(event);
+      const target = this.hitTest(px, py);
+      if (!target) return;
+
+      const [wx, wy] = this.view.unproject(px, py);
+      const drag = { target, preview: null };
+
+      if (target.kind === "node") {
+        const node = (this.frame.nodes || []).find((n) => n.id === target.id);
+        if (!node || !node.pos) return;
+        // Grab offset keeps the node from jumping to the pointer.
+        drag.offset = [node.pos[0] - wx, node.pos[1] - wy];
+      } else {
+        const wall = (this.frame.walls || []).find((w) => w.id === target.id);
+        if (!wall || !wall.vertices || wall.vertices.length < 2) return;
+        drag.wall = wall;
+        if (target.kind === "wall_vertex") {
+          const vertex = wall.vertices[target.index];
+          drag.offset = [vertex[0] - wx, vertex[1] - wy];
+        } else {
+          drag.startWorld = [wx, wy];
+          drag.startXY = wall.vertices.map((v) => [v[0], v[1]]);
+        }
+      }
+
+      this.drag = drag;
+      try {
+        this.canvas.setPointerCapture(event.pointerId);
+      } catch (_error) {
+        // Capture can fail for synthetic or already-released pointers; the
+        // canvas listeners still receive the drag events.
+      }
+      this.canvas.style.cursor = "grabbing";
+      event.preventDefault();
+    },
+
+    onPointerMove(event) {
+      const [px, py] = this.pointerPos(event);
+
+      if (!this.drag) {
+        // Hover affordance only; no state changes, no server traffic.
+        if (this.canvas && event.pointerType === "mouse") {
+          this.canvas.style.cursor = this.hitTest(px, py) ? "grab" : "";
+        }
+        return;
+      }
+
+      const view = this.view;
+      if (!view) return;
+      const [wx, wy] = view.unproject(px, py);
+      const { target } = this.drag;
+      const bounds = view.bounds;
+      const snap = this.snap && view.gridStep > 0 ? view.gridStep : null;
+      let preview = null;
+
+      if (target.kind === "node") {
+        let x = wx + this.drag.offset[0];
+        let y = wy + this.drag.offset[1];
+        if (snap) {
+          x = snapValue(x, snap);
+          y = snapValue(y, snap);
+        }
+        preview = {
+          kind: "node",
+          id: target.id,
+          pos: [
+            clamp(x, bounds.min[0] - DRAG_BOUNDS_MARGIN, bounds.max[0] + DRAG_BOUNDS_MARGIN),
+            clamp(y, bounds.min[1] - DRAG_BOUNDS_MARGIN, bounds.max[1] + DRAG_BOUNDS_MARGIN)
+          ]
+        };
+      } else if (target.kind === "wall_vertex") {
+        let x = wx + this.drag.offset[0];
+        let y = wy + this.drag.offset[1];
+        if (snap) {
+          x = snapValue(x, snap);
+          y = snapValue(y, snap);
+        }
+        x = clamp(x, bounds.min[0] - DRAG_BOUNDS_MARGIN, bounds.max[0] + DRAG_BOUNDS_MARGIN);
+        y = clamp(y, bounds.min[1] - DRAG_BOUNDS_MARGIN, bounds.max[1] + DRAG_BOUNDS_MARGIN);
+        [x, y] = guardWallVertex(x, y, this.drag.wall.vertices, target.index);
+        preview = {
+          kind: "wall_vertex",
+          id: target.id,
+          index: target.index,
+          vertices: this.drag.wall.vertices.map((v, i) =>
+            i === target.index ? [x, y, v[2]] : v
+          )
+        };
+      } else {
+        // Whole wall: one shared translation, snapped and clamped so EVERY
+        // vertex stays inside bounds + margin.
+        let dx = wx - this.drag.startWorld[0];
+        let dy = wy - this.drag.startWorld[1];
+        if (snap) {
+          dx = snapValue(dx, snap);
+          dy = snapValue(dy, snap);
+        }
+        const startXY = this.drag.startXY;
+        dx = clampAxis(
+          dx,
+          Math.max(...startXY.map((v) => bounds.min[0] - DRAG_BOUNDS_MARGIN - v[0])),
+          Math.min(...startXY.map((v) => bounds.max[0] + DRAG_BOUNDS_MARGIN - v[0]))
+        );
+        dy = clampAxis(
+          dy,
+          Math.max(...startXY.map((v) => bounds.min[1] - DRAG_BOUNDS_MARGIN - v[1])),
+          Math.min(...startXY.map((v) => bounds.max[1] + DRAG_BOUNDS_MARGIN - v[1]))
+        );
+        preview = {
+          kind: "wall",
+          id: target.id,
+          vertices: this.drag.wall.vertices.map((v, i) => [
+            startXY[i][0] + dx,
+            startXY[i][1] + dy,
+            v[2]
+          ])
+        };
+      }
+
+      this.drag.preview = preview;
+      this.scheduleDraw();
+    },
+
+    onPointerUp(event) {
+      if (!this.drag) return;
+      const { preview } = this.drag;
+
+      if (preview) {
+        // ONE commit event per drag; the server re-validates and re-renders.
+        const payload =
+          preview.kind === "node"
+            ? { kind: "node", id: preview.id, pos: preview.pos }
+            : preview.kind === "wall_vertex"
+              ? {
+                  kind: "wall_vertex",
+                  id: preview.id,
+                  index: preview.index,
+                  pos: [preview.vertices[preview.index][0], preview.vertices[preview.index][1]]
+                }
+              : {
+                  kind: "wall",
+                  id: preview.id,
+                  vertices: preview.vertices.map((v) => [v[0], v[1]])
+                };
+        if (this.snap && this.view && this.view.gridStep > 0) {
+          payload.grid_step = this.view.gridStep;
+        }
+        this.pushEvent("commit_geometry", payload);
+      }
+
+      this.endDrag(event.pointerId);
+    },
+
+    onPointerCancel(event) {
+      if (this.drag) this.endDrag(event.pointerId);
+    },
+
+    endDrag(pointerId) {
+      this.drag = null;
+      if (this.canvas) {
+        try {
+          if (this.canvas.hasPointerCapture(pointerId)) {
+            this.canvas.releasePointerCapture(pointerId);
+          }
+        } catch (_error) {
+          // Pointer already released; nothing to do.
+        }
+        this.canvas.style.cursor = "";
+      }
+      this.scheduleDraw();
+    },
+
     destroyed() {
+      if (this.canvas) {
+        this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+        this.canvas.removeEventListener("pointermove", this.onPointerMove);
+        this.canvas.removeEventListener("pointerup", this.onPointerUp);
+        this.canvas.removeEventListener("pointercancel", this.onPointerCancel);
+      }
       if (this.observer) this.observer.disconnect();
       if (this.raf) cancelAnimationFrame(this.raf);
       this.observer = null;
       this.raf = null;
+      this.drag = null;
     }
   };
 

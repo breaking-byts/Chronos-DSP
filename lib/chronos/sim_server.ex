@@ -12,6 +12,7 @@ defmodule Chronos.SimServer do
   alias Chronos.Scenario
   alias Chronos.Scene
   alias Chronos.SimFrame
+  alias Chronos.World
 
   @default_tick_ms 100
   @default_seed 7
@@ -45,6 +46,25 @@ defmodule Chronos.SimServer do
   def set_scenario(pid, scenario),
     do: GenServer.call(pid, {:set_scenario, scenario}, @call_timeout)
 
+  @doc """
+  Replaces the current world with an edited one (canvas drag commit, #34).
+
+  Recomputes the viewport bounds from the new geometry via `Chronos.Scene.bounds/1`
+  and marks the session as custom. `initial_world` is kept as the PRE-EDIT
+  baseline captured at session start, so `reset/1` still rewinds to the world
+  the session began with (slice #37 refines revert semantics).
+
+  Once a world is edited, ticking uses `Chronos.World.step/2` (linear velocity)
+  instead of the scenario kinematics, which would otherwise overwrite dragged
+  positions every tick. `reset/1` restores the original stepping mode.
+  """
+  @spec update_world(pid(), World.t()) :: :ok | {:error, :invalid_world}
+  def update_world(pid, world), do: GenServer.call(pid, {:update_world, world}, @call_timeout)
+
+  @doc "Returns the current world and its viewport bounds (for drag validation)."
+  @spec get_world(pid()) :: {:ok, World.t(), Scene.bounds()}
+  def get_world(pid), do: GenServer.call(pid, :get_world, @call_timeout)
+
   @impl true
   def init(opts) do
     scenario = opts |> Keyword.get(:scenario, Scenario.default_id()) |> normalize_scenario()
@@ -62,9 +82,11 @@ defmodule Chronos.SimServer do
       seed: Keyword.get(opts, :seed, @default_seed),
       scenario: scenario,
       custom_world: custom_world?,
+      baseline_custom_world: custom_world?,
       world: world,
       initial_world: world,
       bounds: bounds,
+      initial_bounds: bounds,
       tick_ms: clamp(Keyword.get(opts, :tick_ms, @default_tick_ms), 20, 2_000),
       noise_power: clamp(Keyword.get(opts, :noise_power, @default_noise_power), 0.0, 1.0),
       sample_rate: Keyword.get(opts, :sample_rate, @default_sample_rate),
@@ -114,7 +136,26 @@ defmodule Chronos.SimServer do
         do: state.initial_world,
         else: Scenario.world(state.scenario)
 
-    {:reply, :ok, %{state | tick: 0, world: world}}
+    {:reply, :ok,
+     %{
+       state
+       | tick: 0,
+         world: world,
+         bounds: state.initial_bounds,
+         custom_world: state.baseline_custom_world
+     }}
+  end
+
+  def handle_call({:update_world, %World{} = world}, _from, state) do
+    {:reply, :ok, %{state | world: world, bounds: Scene.bounds(world), custom_world: true}}
+  end
+
+  def handle_call({:update_world, _world}, _from, state) do
+    {:reply, {:error, :invalid_world}, state}
+  end
+
+  def handle_call(:get_world, _from, state) do
+    {:reply, {:ok, state.world, state.bounds}, state}
   end
 
   def handle_call({:set_tick_ms, tick_ms}, _from, state) when is_number(tick_ms) do
@@ -136,16 +177,19 @@ defmodule Chronos.SimServer do
   def handle_call({:set_scenario, scenario}, _from, state) do
     scenario = normalize_scenario(scenario)
     world = Scenario.world(scenario)
+    bounds = Scenario.bounds(scenario)
 
     {:reply, :ok,
      %{
        state
        | scenario: scenario,
          custom_world: false,
+         baseline_custom_world: false,
          tick: 0,
          world: world,
          initial_world: world,
-         bounds: Scenario.bounds(scenario)
+         bounds: bounds,
+         initial_bounds: bounds
      }}
   end
 
@@ -179,7 +223,13 @@ defmodule Chronos.SimServer do
 
   defp advance(state) do
     dt = state.tick_ms / 1_000.0
-    world = Scenario.step(state.world, state.scenario, dt)
+    # Edited worlds step by node velocity only: scenario kinematics (the orbit)
+    # would otherwise snap dragged nodes back to their scripted positions.
+    world =
+      if state.custom_world,
+        do: World.step(state.world, dt),
+        else: Scenario.step(state.world, state.scenario, dt)
+
     %{state | tick: state.tick + 1, world: world}
   end
 

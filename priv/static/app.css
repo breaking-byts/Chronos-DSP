@@ -390,6 +390,12 @@ button:focus-visible {
   color: var(--muted);
 }
 
+.button.is-active {
+  color: #a5f3fc;
+  border-color: rgba(34, 211, 238, 0.45);
+  background: var(--cyan-soft);
+}
+
 .control-group {
   display: flex;
   flex-direction: column;
