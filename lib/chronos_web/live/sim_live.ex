@@ -28,6 +28,9 @@ defmodule ChronosWeb.SimLive do
   @default_speed_ms 100
   @default_noise_power 0.01
   @default_tx_power ApiParams.default_tx_power()
+  # Undo history depth (#37): pre-edit worlds, newest first; the oldest entry
+  # drops once the stack exceeds the cap.
+  @undo_depth 50
 
   @speeds [
     %{label: "0.5×", ms: 200},
@@ -77,9 +80,15 @@ defmodule ChronosWeb.SimLive do
         scene_message: nil,
         scene_baseline: SceneSnapshot.from_world(Scenario.world(scenario)),
         scene_dirty: false,
-        # Undo hook for slice #37: #36 only establishes and clears the stack
-        # (on load/reset/scenario switch); #37 populates the ~50 entries.
-        undo_stack: []
+        # Undo/reset + export (#37). `undo_stack` holds pre-edit worlds
+        # (newest first, capped at @undo_depth); `saved_world` is the
+        # restorable world behind the normalized dirty baseline (last
+        # save/load/reset); `custom_world` mirrors SimServer's edited-world
+        # flag for the export note; `export_menu_open` toggles the CSV menu.
+        undo_stack: [],
+        saved_world: Scenario.world(scenario),
+        custom_world: false,
+        export_menu_open: false
       )
 
     if connected?(socket) do
@@ -166,6 +175,61 @@ defmodule ChronosWeb.SimLive do
     {:noreply, reset_simulation(socket)}
   end
 
+  # -- Undo/reset + export (#37) ---------------------------------------------
+  # Undo-only for v1 (redo deferred). The stack holds pre-edit worlds pushed
+  # by commit_world/4; popping one restores it through SimServer.update_world/2
+  # and re-renders through the normal sim_frame flow. The Undo button and the
+  # UndoKeys hook (Ctrl/Cmd+Z) push this same event.
+
+  def handle_event("undo", _params, socket) do
+    case {socket.assigns.sim, socket.assigns.undo_stack} do
+      {pid, [world | rest]} when is_pid(pid) ->
+        case SimServer.update_world(pid, world) do
+          :ok ->
+            socket = assign(socket, undo_stack: rest)
+
+            case safe_next_frame(pid) do
+              {:ok, frame} ->
+                {:noreply,
+                 socket
+                 |> put_frame(frame)
+                 |> push_event("sim_frame", frame)
+                 |> refresh_scene_dirty(world)}
+
+              {:error, reason} ->
+                {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+            end
+
+          {:error, reason} ->
+            Logger.warning("Undo failed: #{inspect(reason)}")
+            {:noreply, socket}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # "Revert to saved" restores the last saved/loaded snapshot — the restorable
+  # `saved_world`, NOT the normalized dirty baseline (which has no velocities).
+  # A no-op while clean: there is nothing to revert.
+  def handle_event("revert_to_saved", _params, socket) do
+    cond do
+      is_nil(socket.assigns.sim) ->
+        {:noreply, socket}
+
+      not socket.assigns.scene_dirty ->
+        {:noreply, socket}
+
+      true ->
+        revert_to_saved(socket, socket.assigns.sim, socket.assigns.saved_world)
+    end
+  end
+
+  def handle_event("toggle_export_menu", _params, socket) do
+    {:noreply, assign(socket, export_menu_open: !socket.assigns.export_menu_open)}
+  end
+
   def handle_event("toggle_snap", _params, socket) do
     enabled = !socket.assigns.snap_to_grid
 
@@ -212,7 +276,7 @@ defmodule ChronosWeb.SimLive do
             frame = build_frame(id, socket.assigns.noise_power, socket.assigns.tx_power)
 
             socket
-            |> assign(scenario: id)
+            |> assign(scenario: id, custom_world: false)
             |> put_frame(frame)
             |> set_scene_baseline(Scenario.world(id))
 
@@ -222,13 +286,17 @@ defmodule ChronosWeb.SimLive do
             case safe_next_frame(pid) do
               {:ok, frame} ->
                 socket
-                |> assign(scenario: id)
+                |> assign(scenario: id, custom_world: false)
                 |> put_frame(frame)
                 |> push_event("sim_frame", frame)
                 |> set_scene_baseline(Scenario.world(id))
 
               {:error, reason} ->
-                assign(socket, scenario: id, error: "Simulation error: #{reason}")
+                assign(socket,
+                  scenario: id,
+                  custom_world: false,
+                  error: "Simulation error: #{reason}"
+                )
             end
         end
 
@@ -389,7 +457,7 @@ defmodule ChronosWeb.SimLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <main class="shell">
+    <main id="app-shell" class="shell" phx-hook="UndoKeys">
       <header class="topbar">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true"></span>
@@ -472,6 +540,51 @@ defmodule ChronosWeb.SimLive do
               </button>
               <button class="button" phx-click="step">Step</button>
               <button class="button ghost" phx-click="reset">Reset</button>
+              <div class="export-control">
+                <button
+                  class={["button ghost", @export_menu_open && "is-active"]}
+                  phx-click="toggle_export_menu"
+                  aria-expanded={to_string(@export_menu_open)}
+                  aria-haspopup="menu"
+                  title="Export CSV from the built-in scenario"
+                >
+                  Export CSV
+                </button>
+                <div :if={@export_menu_open} class="export-menu" role="menu">
+                  <a
+                    :for={link <- export_links(assigns)}
+                    href={link.href}
+                    download={link.file}
+                    role="menuitem"
+                  >
+                    <%= link.label %>
+                  </a>
+                  <p :if={@custom_world} class="export-note is-warning">
+                    This world has been edited — export reflects the built-in
+                    <%= scenario_name(@scenario) %> scenario, not your edits.
+                  </p>
+                  <p class="export-note">
+                    CSV re-simulates the scenario at 0.1 s/tick with the live seed
+                    and TX power; noise and sample rate are fixed by the export API.
+                  </p>
+                </div>
+              </div>
+              <button
+                class="button ghost"
+                phx-click="undo"
+                disabled={@undo_stack == []}
+                title="Undo the last edit (Ctrl/Cmd+Z)"
+              >
+                Undo
+              </button>
+              <button
+                class="button ghost"
+                phx-click="revert_to_saved"
+                disabled={not @scene_dirty}
+                title="Restore the last saved/loaded snapshot"
+              >
+                Revert to saved
+              </button>
               <button
                 class={["button ghost", @snap_to_grid && "is-active"]}
                 phx-click="toggle_snap"
@@ -839,8 +952,41 @@ defmodule ChronosWeb.SimLive do
     }
   end
 
+  # Export CSV menu links (#37). The existing /api/export endpoints are
+  # SCENARIO-based: they re-simulate the built-in scenario from tick 0 at
+  # 0.1 s/tick, so an edited custom world cannot be expressed through them.
+  # The links carry the live scenario/seed/tx_power and the current tick; the
+  # menu warns when the world is custom and notes the API's fixed noise power
+  # (0.01) and sample rate (48 kHz) — neither is an export query parameter.
+  defp export_links(assigns) do
+    base = %{"scenario" => assigns.scenario, "seed" => @seed, "tx_power" => assigns.tx_power}
+    tick = assigns.frame.tick
+
+    [
+      %{
+        label: "Metrics (current tick)",
+        file: "metrics.csv",
+        href: "/api/export/metrics?" <> URI.encode_query(Map.merge(base, %{"ticks" => tick}))
+      },
+      %{
+        label: "History (ticks 0–100)",
+        file: "history.csv",
+        href:
+          "/api/export/history?" <>
+            URI.encode_query(Map.merge(base, %{"from" => 0, "to" => 100, "step" => 1}))
+      },
+      %{
+        label: "Samples (current tick)",
+        file: "samples.csv",
+        href:
+          "/api/export/samples?" <>
+            URI.encode_query(Map.merge(base, %{"ticks" => tick, "limit" => 128}))
+      }
+    ]
+  end
+
   # One validated panel commit: fetch the live world, apply the pure edit,
-  # replace the world through SimServer, re-render through the normal flow.
+  # then share the drag-commit path (undo push, world replace, re-render).
   defp apply_panel_edit(socket, edit) do
     case socket.assigns.sim do
       nil ->
@@ -848,19 +994,8 @@ defmodule ChronosWeb.SimLive do
 
       pid ->
         with {:ok, world, bounds} <- safe_get_world(pid),
-             {:ok, updated} <- edit.(world, bounds),
-             :ok <- SimServer.update_world(pid, updated) do
-          case safe_next_frame(pid) do
-            {:ok, frame} ->
-              {:noreply,
-               socket
-               |> put_frame(frame)
-               |> push_event("sim_frame", frame)
-               |> refresh_scene_dirty(updated)}
-
-            {:error, reason} ->
-              {:noreply, assign(socket, error: "Simulation error: #{reason}")}
-          end
+             {:ok, updated} <- edit.(world, bounds) do
+          commit_world(socket, pid, world, updated)
         else
           {:error, reason} ->
             Logger.warning("Rejected panel edit: #{inspect(reason)}")
@@ -888,31 +1023,58 @@ defmodule ChronosWeb.SimLive do
   end
 
   # One commit per drag release: validate server-side (bounds clamp, min wall
-  # length, snap), replace the world, then re-render through the normal flow.
+  # length, snap), then share the panel-commit path (undo push, world replace,
+  # re-render).
   defp commit_geometry(pid, params, socket) do
     with {:ok, world, bounds} <- safe_get_world(pid),
          {:ok, updated} <-
            SceneEdit.apply(world, bounds, params,
              snap: socket.assigns.snap_to_grid,
              grid_step: params["grid_step"]
-           ),
-         :ok <- SimServer.update_world(pid, updated) do
-      case safe_next_frame(pid) do
-        {:ok, frame} ->
-          {:noreply,
-           socket
-           |> put_frame(frame)
-           |> push_event("sim_frame", frame)
-           |> refresh_scene_dirty(updated)}
-
-        {:error, reason} ->
-          {:noreply, assign(socket, error: "Simulation error: #{reason}")}
-      end
+           ) do
+      commit_world(socket, pid, world, updated)
     else
       {:error, reason} ->
         Logger.warning("Rejected geometry commit: #{inspect(reason)}")
         {:noreply, socket}
     end
+  end
+
+  # Shared world commit (#37): replace the world through SimServer, push the
+  # PRE-EDIT world onto the undo stack (newest first, capped at @undo_depth —
+  # the oldest entry drops beyond the cap), mark the session custom, then
+  # re-render through the normal sim_frame flow and refresh the dirty dot.
+  # Covers drag commits and every panel edit (sliders, z, material,
+  # attenuation, add/remove wall). Undo pops the top back through
+  # SimServer.update_world/2; redo is deferred.
+  defp commit_world(socket, pid, pre_edit, updated) do
+    case SimServer.update_world(pid, updated) do
+      :ok ->
+        socket =
+          socket
+          |> push_undo(pre_edit)
+          |> assign(custom_world: true)
+
+        case safe_next_frame(pid) do
+          {:ok, frame} ->
+            {:noreply,
+             socket
+             |> put_frame(frame)
+             |> push_event("sim_frame", frame)
+             |> refresh_scene_dirty(updated)}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+        end
+
+      {:error, reason} ->
+        Logger.warning("Rejected world update: #{inspect(reason)}")
+        {:noreply, socket}
+    end
+  end
+
+  defp push_undo(socket, world) do
+    assign(socket, undo_stack: Enum.take([world | socket.assigns.undo_stack], @undo_depth))
   end
 
   defp safe_get_world(pid) do
@@ -962,7 +1124,8 @@ defmodule ChronosWeb.SimLive do
 
   # Loads a stored scene and replaces the session world through
   # SimServer.update_world/2 (bounds recompute, custom stepping). The loaded
-  # world becomes the dirty baseline and the undo history clears (#37 hook).
+  # world becomes the dirty baseline + revert target and the undo history
+  # clears (#37).
   defp load_world_scene(socket, pid, name) do
     with {:ok, scene} <- SceneStore.get(name),
          {:ok, world} <- SceneStore.scene_to_world(scene),
@@ -974,6 +1137,7 @@ defmodule ChronosWeb.SimLive do
            |> put_frame(frame)
            |> push_event("sim_frame", frame)
            |> set_scene_baseline(world)
+           |> assign(custom_world: true)
            |> put_scene_message(
              :info,
              "Loaded scene \"#{name}\" — it replaced the current world."
@@ -993,15 +1157,42 @@ defmodule ChronosWeb.SimLive do
     end
   end
 
-  # Sets the dirty-state baseline to `world` (last save/load/reset), clears
-  # the dirty dot, and clears the undo history. `undo_stack` is the slice #37
-  # hook: #36 establishes and clears it; #37 populates the ~50-entry stack.
+  # Sets the dirty-state baseline to `world` (last save/load/reset), keeps the
+  # restorable world for "Revert to saved" (#37) — the normalized snapshot has
+  # no velocities and cannot be restored directly — clears the dirty dot, and
+  # clears the undo history.
   defp set_scene_baseline(socket, world) do
     assign(socket,
       scene_baseline: SceneSnapshot.from_world(world),
+      saved_world: world,
       scene_dirty: false,
       undo_stack: []
     )
+  end
+
+  # "Revert to saved" (#37): restore the last saved/loaded world through
+  # SimServer.update_world/2, re-render, then re-baseline (which clears the
+  # undo stack and the dirty dot). The session stays custom-stepped.
+  defp revert_to_saved(socket, pid, world) do
+    case SimServer.update_world(pid, world) do
+      :ok ->
+        case safe_next_frame(pid) do
+          {:ok, frame} ->
+            {:noreply,
+             socket
+             |> put_frame(frame)
+             |> push_event("sim_frame", frame)
+             |> set_scene_baseline(world)
+             |> assign(custom_world: true)}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+        end
+
+      {:error, reason} ->
+        Logger.warning("Revert to saved failed: #{inspect(reason)}")
+        {:noreply, socket}
+    end
   end
 
   # Recomputes the dirty dot after an edit: normalized geometry (positions,
@@ -1053,6 +1244,7 @@ defmodule ChronosWeb.SimLive do
           )
         )
         |> set_scene_baseline(Scenario.world(socket.assigns.scenario))
+        |> assign(custom_world: false)
 
       pid ->
         :ok = SimServer.reset(pid)
@@ -1065,10 +1257,16 @@ defmodule ChronosWeb.SimLive do
               |> push_event("sim_frame", frame)
 
             # Reset rewinds to the session's pre-edit world; the dirty
-            # baseline follows it and the undo history clears (#37 hook).
+            # baseline follows it, the undo history clears, and the session
+            # is scenario-stepped again (#37).
             case safe_get_world(pid) do
-              {:ok, world, _bounds} -> set_scene_baseline(socket, world)
-              {:error, _reason} -> socket
+              {:ok, world, _bounds} ->
+                socket
+                |> set_scene_baseline(world)
+                |> assign(custom_world: false)
+
+              {:error, _reason} ->
+                assign(socket, custom_world: false)
             end
 
           {:error, reason} ->
@@ -1094,10 +1292,14 @@ defmodule ChronosWeb.SimLive do
 
         case safe_next_frame(pid) do
           {:ok, frame} ->
+            # A restarted session begins fresh from the scenario: re-baseline
+            # (clears undo + dirty, resets the revert target) and mark it
+            # scenario-stepped (#37).
             socket
-            |> assign(sim: pid, sim_ref: ref, running: running?)
+            |> assign(sim: pid, sim_ref: ref, running: running?, custom_world: false)
             |> put_frame(frame)
             |> push_event("sim_frame", frame)
+            |> set_scene_baseline(Scenario.world(socket.assigns.scenario))
 
           {:error, reason} ->
             assign(socket,

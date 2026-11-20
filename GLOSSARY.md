@@ -100,6 +100,16 @@ _Avoid_: garbage collection, pruning
 The live world differs from the last saved or loaded scene snapshot.
 _Avoid_: unsaved changes, modified flag
 
+**Undo**:
+Reverting the most recent edit to the world; render options (transmit power,
+noise, speed) are not edits and are not undoable.
+_Avoid_: rollback, revert (for single-step undo)
+
+**Revert to saved**:
+Restoring the world to the last saved or loaded scene, discarding subsequent
+edits.
+_Avoid_: reset (for this), reload
+
 **Telemetry event**:
 A named runtime observation — render timing, session lifecycle, or an API
 request — emitted with measurements and structured metadata for logging.

@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Undo/reset + Export CSV (issue #37, interactive-editing slice 5 — the final
+  editing slice): an undo stack of pre-edit worlds (newest first, capped at
+  50, oldest dropped beyond the cap) pushed by the shared drag/panel commit
+  path in `ChronosWeb.SimLive`, covering drag commits, sliders, z, material,
+  attenuation, and add/remove wall. An Undo button plus an `UndoKeys` hook
+  (window Ctrl/Cmd+Z, ignored while text inputs/selects have focus) pop the
+  top world back through `SimServer.update_world/2`, re-render through the
+  normal `sim_frame` flow, and recompute the dirty dot; undo is geometry-only
+  (the tick keeps running) and undo-only for v1 — redo is deferred. A
+  `saved_world` assign keeps the restorable world behind the normalized
+  dirty baseline; "Revert to saved" restores it, re-baselines (clearing undo
+  + dirty), and is disabled/no-op while clean. Reset keeps reloading the
+  built-in scenario; reset/load/scenario switch/save all clear the stack. An
+  "Export CSV" control-bar button (next to Reset) opens a server-rendered
+  menu of metrics/history/samples links to the existing
+  `/api/export/{metrics,history,samples}` endpoints with the live
+  scenario/seed/tx_power and current tick (history `from=0&to=100&step=1`,
+  samples `limit=128`). The endpoints are scenario-based, so while the world
+  is custom the menu warns that export reflects the built-in scenario, not
+  the edits; noise power and sample rate are fixed by the export API and the
+  menu notes this. DSP renderers untouched (parity preserved); no new
+  dependencies or build steps.
+
 - Scene save/load UI + dirty state (issue #36, interactive-editing slice 4):
   a "Scenes" panel in `ChronosWeb.SimLive` with a name input + "Save scene"
   button, a scene picker (Load/Delete per scene), an "N/100 scenes" counter,

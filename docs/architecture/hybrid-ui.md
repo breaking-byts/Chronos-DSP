@@ -1,13 +1,14 @@
 # Browser UI Architecture
 
-The dashboard is a Phoenix LiveView page with two client hooks. It has no Node
-build step, no bundler, and no CDN dependencies.
+The dashboard is a Phoenix LiveView page with three client hooks. It has no
+Node build step, no bundler, and no CDN dependencies.
 
 ## Assets
 
 Served by `ChronosWeb.Endpoint` from the application's `priv/static`:
 
-- `/assets/app.js`: `SimCanvas` and `DspCharts` hooks plus LiveSocket setup.
+- `/assets/app.js`: `SimCanvas`, `DspCharts`, and `UndoKeys` hooks plus
+  LiveSocket setup.
 - `/assets/app.css`: layout, palette, controls, and chart cards.
 - `/assets/vendor/echarts.min.js`: vendored ECharts build (Apache-2.0; see
   `priv/static/vendor/ECHARTS-LICENSE.txt` and `README.md`).
@@ -75,8 +76,10 @@ A frame contains:
 `SimLive` handles `toggle`, `step`, `reset`, `speed`, `noise`, `scenario`,
 `toggle_snap`, `commit_geometry`, the editing-panel events `set_tx_power`,
 `set_wall_attenuation`, `set_wall_auto`, `set_node_z`, `set_wall_z`,
-`set_wall_material`, `add_wall`, and `remove_wall`, and the scene events
-`set_scene_name`, `save_scene`, `load_scene`, and `delete_scene` (#36).
+`set_wall_material`, `add_wall`, and `remove_wall`, the scene events
+`set_scene_name`, `save_scene`, `load_scene`, and `delete_scene` (#36), and
+the undo/reset + export events `undo`, `revert_to_saved`, and
+`toggle_export_menu` (#37).
 Speed and noise values are
 validated against fixed allowlists before being forwarded to `SimServer`. The
 scenario handler rejects unknown ids and resets the tick counter.
@@ -96,9 +99,9 @@ goes to `SimServer.set_tx_power/2` (a render option, like noise).
 The full spec is [interactive-editing.md](../design/interactive-editing.md),
 with the rendering-mode decision in
 [ADR 0002](../adr/0002-interactive-editing-2d-projection.md). Drag editing
-(slice 2, issue #34), the editing panel (slice 3, issue #35), and scene
-save/load + dirty state (slice 4, issue #36) are implemented; the undo
-slice (#37) is still pending.
+(slice 2, issue #34), the editing panel (slice 3, issue #35), scene
+save/load + dirty state (slice 4, issue #36), and undo/reset + the Export
+CSV menu (slice 5, issue #37) are implemented.
 
 - `SimCanvas` has drag editing: pointer-event hit-testing (~12 px screen
   radius, DPR-scaled) over nodes, wall endpoints, and whole walls; a
@@ -147,10 +150,36 @@ slice (#37) is still pending.
   The dirty dot is recomputed on drag commits and panel edits by comparing
   the edited world's snapshot to the baseline — NOT on ticks, so simulation
   motion alone never lights it. Save/load/reset/scenario switches replace
-  the baseline and clear the dot, and clear the `undo_stack` assign: the
-  slice #37 hook that the undo stack will populate (~50 entries).
-- Undo (~50 entries, cleared on load/reset — #37) and an Export CSV menu
-  over the existing `/api/export` endpoints round out the controls.
+  the baseline and clear the dot, and clear the `undo_stack` assign.
+- Undo/reset (#37): drag commits and panel edits share one commit path
+  (`commit_world/4`) that pushes the PRE-EDIT world onto `undo_stack`
+  (newest first, capped at 50 — the oldest entry drops beyond the cap)
+  before replacing the world through `SimServer.update_world/2`. The Undo
+  button and the `UndoKeys` hook (window Ctrl/Cmd+Z, ignored while a text
+  input/select has focus; Shift+Z redo is deferred) push the same `undo`
+  event, which pops the top world back through `SimServer.update_world/2`,
+  re-renders through the normal `sim_frame` flow, and recomputes the dirty
+  dot. Undo is geometry-only: the tick counter keeps running. A
+  `saved_world` assign keeps the RESTORABLE world behind the normalized
+  baseline (the snapshot has no velocities); "Revert to saved" restores it
+  through `update_world/2`, re-baselines (clearing undo + dirty), and is
+  disabled/no-op while clean. Reset keeps reloading the built-in scenario
+  and clears the stack; loading a scene and switching scenarios clear it
+  too. Undo covers World geometry and property edits only — render options
+  (transmit power, noise, speed) are not World state and are not undoable,
+  matching the existing noise/speed controls.
+- Export CSV (#37): an "Export CSV" button in the control bar (next to
+  Reset) opens a server-rendered menu of metrics / history / samples links
+  to the existing `/api/export/{metrics,history,samples}` endpoints,
+  carrying the live `scenario`, `seed` (7), `tx_power`, and the current
+  `ticks` (history uses `from=0&to=100&step=1`; samples `limit=128`). The
+  endpoints are SCENARIO-based — they re-simulate the built-in scenario
+  from tick 0 at 0.1 s/tick — so an edited custom world cannot be expressed
+  through them: while the session world is custom (`custom_world` assign,
+  mirroring `SimServer`), the menu shows a warning that export reflects the
+  built-in scenario, not the edits. Noise power (0.01) and sample rate
+  (48 kHz) are fixed by the export API, not query parameters; the menu
+  notes this. No new backend work.
 
 ## Styling
 

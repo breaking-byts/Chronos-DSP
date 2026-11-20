@@ -885,7 +885,28 @@
     }
   };
 
-  const Hooks = { SimCanvas, DspCharts };
+  // Undo shortcut (#37): Ctrl/Cmd+Z pushes the same "undo" event as the Undo
+  // button. Text inputs keep their native undo; Shift+Z (redo) is deferred.
+  const UndoKeys = {
+    mounted() {
+      this.onKeyDown = (event) => {
+        if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+        if (event.key !== "z" && event.key !== "Z") return;
+        const target = event.target;
+        const tag = target ? target.tagName : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (target && target.isContentEditable) return;
+        event.preventDefault();
+        this.pushEvent("undo", {});
+      };
+      window.addEventListener("keydown", this.onKeyDown);
+    },
+    destroyed() {
+      window.removeEventListener("keydown", this.onKeyDown);
+    }
+  };
+
+  const Hooks = { SimCanvas, DspCharts, UndoKeys };
   window.liveHooks = Hooks;
 
   const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
