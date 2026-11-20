@@ -42,6 +42,11 @@ A path through a blocking wall, summing the transmission losses of the walls it
 crosses.
 _Avoid_: penetration ray
 
+**Reference height**:
+The representative height of a wall, the mean z of its vertices; editing it
+translates the wall vertically without changing its shape or vertical extent.
+_Avoid_: wall height (unqualified), base z
+
 ### Simulation
 
 **Session**:

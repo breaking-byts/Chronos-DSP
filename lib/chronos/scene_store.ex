@@ -51,6 +51,14 @@ defmodule Chronos.SceneStore do
   @material_ids Enum.map(Material.ids(), &Atom.to_string/1)
 
   @doc """
+  The per-scene item cap (1024) shared by nodes and walls. The editing panel
+  bounds its add-wall button by this cap so an edited world always stays
+  saveable as a scene (#35).
+  """
+  @spec max_scene_items() :: pos_integer()
+  def max_scene_items, do: @max_scene_items
+
+  @doc """
   Lists every stored scene sorted by name.
 
   Unreadable or malformed files are skipped rather than raising. A missing

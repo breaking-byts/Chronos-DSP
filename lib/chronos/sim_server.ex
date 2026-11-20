@@ -17,6 +17,7 @@ defmodule Chronos.SimServer do
   @default_tick_ms 100
   @default_seed 7
   @default_noise_power 0.01
+  @default_tx_power 10
   @default_sample_rate 48_000.0
   @call_timeout 10_000
 
@@ -40,6 +41,18 @@ defmodule Chronos.SimServer do
   def set_noise_power(pid, noise_power) do
     GenServer.call(pid, {:set_noise_power, noise_power}, @call_timeout)
   end
+
+  @doc """
+  Changes the transmit power in dBm (integer, clamped to `0..30`).
+
+  A render option like `noise_power`: it scales the rendered signal through
+  the `:tx_power` channel opt (#33) without touching the world, and survives
+  `reset/1` and `set_scenario/2`. Non-integers are rejected — the channel opt
+  requires an integer (`ChronosWeb.ApiParams.validate_tx_power/1`).
+  """
+  @spec set_tx_power(pid(), integer()) :: :ok | {:error, :invalid_value}
+  def set_tx_power(pid, tx_power),
+    do: GenServer.call(pid, {:set_tx_power, tx_power}, @call_timeout)
 
   @doc "Switches to a built-in scenario and resets the tick counter."
   @spec set_scenario(pid(), Scenario.id()) :: :ok
@@ -89,6 +102,7 @@ defmodule Chronos.SimServer do
       initial_bounds: bounds,
       tick_ms: clamp(Keyword.get(opts, :tick_ms, @default_tick_ms), 20, 2_000),
       noise_power: clamp(Keyword.get(opts, :noise_power, @default_noise_power), 0.0, 1.0),
+      tx_power: clamp(Keyword.get(opts, :tx_power, @default_tx_power), 0, 30),
       sample_rate: Keyword.get(opts, :sample_rate, @default_sample_rate),
       owner: Keyword.get(opts, :owner),
       started_at: System.monotonic_time()
@@ -174,6 +188,14 @@ defmodule Chronos.SimServer do
     {:reply, {:error, :invalid_value}, state}
   end
 
+  def handle_call({:set_tx_power, tx_power}, _from, state) when is_integer(tx_power) do
+    {:reply, :ok, %{state | tx_power: clamp(tx_power, 0, 30)}}
+  end
+
+  def handle_call({:set_tx_power, _value}, _from, state) do
+    {:reply, {:error, :invalid_value}, state}
+  end
+
   def handle_call({:set_scenario, scenario}, _from, state) do
     scenario = normalize_scenario(scenario)
     world = Scenario.world(scenario)
@@ -207,7 +229,8 @@ defmodule Chronos.SimServer do
         seed: state.seed,
         bounds: state.bounds,
         sample_rate: state.sample_rate,
-        noise_power: state.noise_power
+        noise_power: state.noise_power,
+        tx_power: state.tx_power
       )
 
     {:ok, frame}
