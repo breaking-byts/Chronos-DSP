@@ -92,7 +92,9 @@ defmodule ChronosWeb.SceneControllerTest do
       first_task = Task.async(fn -> post_scene(build_conn(), first_scene) end)
       second_task = Task.async(fn -> post_scene(build_conn(), second_scene) end)
 
-      responses = [Task.await(first_task), Task.await(second_task)]
+      # Generous await: under full-suite load the :global lock + file I/O can
+      # exceed Task.await's 5 s default; this test asserts correctness, not speed.
+      responses = [Task.await(first_task, 30_000), Task.await(second_task, 30_000)]
 
       assert Enum.sort(Enum.map(responses, & &1.status)) == [201, 409]
 
@@ -172,7 +174,9 @@ defmodule ChronosWeb.SceneControllerTest do
         end)
       end
 
-    statuses = tasks |> Enum.map(&Task.await/1) |> Enum.map(& &1.status)
+    # 30 s await tolerates full-suite load (the :global lock serializes 40
+    # POSTs); the assertion is about exactly-one-201 correctness, not latency.
+    statuses = tasks |> Enum.map(&Task.await(&1, 30_000)) |> Enum.map(& &1.status)
 
     assert Enum.count(statuses, &(&1 == 201)) == 1
     assert Enum.count(statuses, &(&1 == 409)) == 39
