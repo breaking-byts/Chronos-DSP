@@ -76,13 +76,13 @@ SESSION_SIGNING_SALT=<32+ byte random value>
 Build and run locally:
 
 ```bash
-docker build -t chronos-dsp:0.2.0 .
+docker build -t chronos-dsp:0.3.0 .
 
 docker run --rm -p 4000:4000 \
   -e SECRET_KEY_BASE="$(openssl rand -base64 48)" \
   -e PHX_HOST=localhost \
   -e FORCE_SSL=false \
-  chronos-dsp:0.2.0
+  chronos-dsp:0.3.0
 ```
 
 Then open <http://localhost:4000>. The image:
@@ -103,7 +103,7 @@ docker run --rm -p 4000:4000 \
   -e SECRET_KEY_BASE="$(openssl rand -base64 48)" \
   -e PHX_HOST=chronos.example.com \
   -e CHECK_ORIGIN=https://chronos.example.com \
-  chronos-dsp:0.2.0
+  chronos-dsp:0.3.0
 ```
 
 `/healthz` and `/readyz` are excluded from the SSL redirect, so plain-HTTP
