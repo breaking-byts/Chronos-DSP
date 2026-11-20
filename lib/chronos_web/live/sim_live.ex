@@ -12,15 +12,19 @@ defmodule ChronosWeb.SimLive do
   require Logger
 
   alias Chronos.DSP
+  alias Chronos.Material
+  alias Chronos.PanelEdit
   alias Chronos.Scenario
   alias Chronos.SceneEdit
   alias Chronos.SimFrame
   alias Chronos.SimServer
   alias Chronos.SimSupervisor
+  alias ChronosWeb.ApiParams
 
   @seed 7
   @default_speed_ms 100
   @default_noise_power 0.01
+  @default_tx_power ApiParams.default_tx_power()
 
   @speeds [
     %{label: "0.5×", ms: 200},
@@ -42,7 +46,7 @@ defmodule ChronosWeb.SimLive do
   @impl true
   def mount(_params, _session, socket) do
     scenario = Scenario.default_id()
-    frame = build_frame(scenario, @default_noise_power)
+    frame = build_frame(scenario, @default_noise_power, @default_tx_power)
 
     socket =
       assign(socket,
@@ -53,6 +57,9 @@ defmodule ChronosWeb.SimLive do
         speeds: @speeds,
         noise_power: @default_noise_power,
         noise_levels: @noise_levels,
+        tx_power: @default_tx_power,
+        materials: Material.list(),
+        panel: panel_view(frame, @default_tx_power),
         running: false,
         snap_to_grid: false,
         sim: nil,
@@ -62,7 +69,7 @@ defmodule ChronosWeb.SimLive do
       )
 
     if connected?(socket) do
-      case start_sim(scenario, @default_speed_ms, @default_noise_power) do
+      case start_sim(scenario, @default_speed_ms, @default_noise_power, @default_tx_power) do
         {:ok, pid} ->
           ref = Process.monitor(pid)
           send(self(), :tick)
@@ -87,7 +94,7 @@ defmodule ChronosWeb.SimLive do
         case safe_next_frame(socket.assigns.sim) do
           {:ok, frame} ->
             socket
-            |> assign(frame: frame, error: nil)
+            |> put_frame(frame)
             |> push_event("sim_frame", frame)
 
           {:error, reason} ->
@@ -130,7 +137,7 @@ defmodule ChronosWeb.SimLive do
         {:ok, frame} ->
           {:noreply,
            socket
-           |> assign(frame: frame, error: nil)
+           |> put_frame(frame)
            |> push_event("sim_frame", frame)}
 
         {:error, reason} ->
@@ -188,10 +195,11 @@ defmodule ChronosWeb.SimLive do
       socket =
         case socket.assigns.sim do
           nil ->
-            assign(socket,
-              scenario: id,
-              frame: build_frame(id, socket.assigns.noise_power)
-            )
+            frame = build_frame(id, socket.assigns.noise_power, socket.assigns.tx_power)
+
+            socket
+            |> assign(scenario: id)
+            |> put_frame(frame)
 
           pid ->
             :ok = SimServer.set_scenario(pid, id)
@@ -199,7 +207,8 @@ defmodule ChronosWeb.SimLive do
             case safe_next_frame(pid) do
               {:ok, frame} ->
                 socket
-                |> assign(scenario: id, frame: frame, error: nil)
+                |> assign(scenario: id)
+                |> put_frame(frame)
                 |> push_event("sim_frame", frame)
 
               {:error, reason} ->
@@ -211,6 +220,85 @@ defmodule ChronosWeb.SimLive do
     else
       {:noreply, socket}
     end
+  end
+
+  # -- Editing panel (#35): every value is re-validated server-side ---------
+
+  def handle_event("set_tx_power", %{"value" => value}, socket) do
+    with {tx_power, ""} <- Integer.parse(value),
+         {:ok, tx_power} <- ApiParams.validate_tx_power(tx_power) do
+      if socket.assigns.sim, do: SimServer.set_tx_power(socket.assigns.sim, tx_power)
+
+      {:noreply,
+       assign(socket,
+         tx_power: tx_power,
+         panel: %{socket.assigns.panel | tx_power: tx_power}
+       )}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_wall_attenuation", %{"id" => id, "value" => value}, socket) do
+    with {db, ""} <- Float.parse(value),
+         {:ok, db} <- ApiParams.validate_attenuation(db) do
+      apply_panel_edit(socket, fn world, _bounds ->
+        PanelEdit.set_wall_attenuation(world, id, db)
+      end)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  # Auto checkbox: checked clears the override to nil (use the material);
+  # unchecked seeds the override with the material's reflection loss so the
+  # slider starts at the material's value. Unchecked checkboxes submit no
+  # "auto" field, so a missing value means false.
+  def handle_event("set_wall_auto", %{"id" => id} = params, socket) do
+    auto? = Map.get(params, "auto", "false") in ["true", "on"]
+
+    apply_panel_edit(socket, fn world, _bounds ->
+      db = if auto?, do: nil, else: material_reflection_db(world, id)
+      PanelEdit.set_wall_attenuation(world, id, db)
+    end)
+  end
+
+  def handle_event("set_node_z", %{"id" => id, "value" => value}, socket) do
+    with {z, ""} <- Float.parse(value),
+         {:ok, z} <- ApiParams.validate_z(z) do
+      apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_node_z(world, id, z) end)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_wall_z", %{"id" => id, "value" => value}, socket) do
+    with {z, ""} <- Float.parse(value),
+         {:ok, z} <- ApiParams.validate_z(z) do
+      apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_wall_z(world, id, z) end)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_wall_material", %{"id" => id, "value" => value}, socket) do
+    case ApiParams.validate_material(value) do
+      {:ok, material} ->
+        apply_panel_edit(socket, fn world, _bounds ->
+          PanelEdit.set_wall_material(world, id, material)
+        end)
+
+      {:error, _message} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("add_wall", _params, socket) do
+    apply_panel_edit(socket, fn world, bounds -> PanelEdit.add_wall(world, bounds) end)
+  end
+
+  def handle_event("remove_wall", %{"id" => id}, socket) do
+    apply_panel_edit(socket, fn world, _bounds -> PanelEdit.remove_wall(world, id) end)
   end
 
   @impl true
@@ -359,6 +447,150 @@ defmodule ChronosWeb.SimLive do
             </div>
           </section>
 
+          <section class="panel edit-panel" aria-label="Scene editing">
+            <div class="panel-head compact">
+              <h2>Editing</h2>
+              <span class="muted"><%= @panel.wall_count %>/<%= @panel.max_walls %> walls</span>
+            </div>
+
+            <div class="control-group">
+              <label class="control-label" for="tx-power">TX power</label>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  id="tx-power"
+                  name="value"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value={@panel.tx_power}
+                  phx-change="set_tx_power"
+                  phx-debounce="150"
+                />
+                <span class="slider-value"><%= @panel.tx_power %> dBm</span>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <span class="control-label">Node height (z)</span>
+              <div :for={node <- @panel.nodes} class="field-row">
+                <label for={"node-z-#{node.id}"}><%= node.id %></label>
+                <input
+                  type="number"
+                  id={"node-z-#{node.id}"}
+                  name="value"
+                  min="-5"
+                  max="5"
+                  step="0.1"
+                  value={format_z(node.z)}
+                  phx-change="set_node_z"
+                  phx-value-id={node.id}
+                  phx-debounce="300"
+                />
+                <span class="muted">m</span>
+              </div>
+            </div>
+
+            <div class="control-group">
+              <div class="wall-head">
+                <span class="control-label">Walls</span>
+                <button
+                  class="button ghost"
+                  phx-click="add_wall"
+                  disabled={@panel.wall_count >= @panel.max_walls}
+                  title="Add a short default wall near the scene center"
+                >
+                  Add wall
+                </button>
+              </div>
+
+              <p :if={@panel.walls == []} class="muted empty-note">
+                No walls in this scene. Add one to edit its material and height.
+              </p>
+
+              <div :for={wall <- @panel.walls} class="wall-card" id={"wall-card-#{wall.id}"}>
+                <div class="wall-card-head">
+                  <strong><%= wall.id %></strong>
+                  <button
+                    class="button ghost small"
+                    phx-click="remove_wall"
+                    phx-value-id={wall.id}
+                    title={"Remove #{wall.id}"}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div class="field-row">
+                  <label for={"wall-material-#{wall.id}"}>Material</label>
+                  <select
+                    id={"wall-material-#{wall.id}"}
+                    name="value"
+                    phx-change="set_wall_material"
+                    phx-value-id={wall.id}
+                  >
+                    <option
+                      :for={material <- @materials}
+                      value={material.id}
+                      selected={to_string(material.id) == wall.material}
+                    >
+                      <%= material.name %>
+                    </option>
+                  </select>
+                </div>
+
+                <label class="checkbox-row" for={"wall-auto-#{wall.id}"}>
+                  <input
+                    type="checkbox"
+                    id={"wall-auto-#{wall.id}"}
+                    name="auto"
+                    value="true"
+                    checked={wall.auto}
+                    phx-change="set_wall_auto"
+                    phx-value-id={wall.id}
+                  />
+                  Auto (use material)
+                </label>
+
+                <div class="slider-row">
+                  <input
+                    type="range"
+                    id={"wall-att-#{wall.id}"}
+                    name="value"
+                    min="0"
+                    max="40"
+                    step="0.5"
+                    value={wall.display_attenuation}
+                    disabled={wall.auto}
+                    phx-change="set_wall_attenuation"
+                    phx-value-id={wall.id}
+                    phx-debounce="150"
+                    aria-label={"#{wall.id} attenuation override"}
+                  />
+                  <span class="slider-value">
+                            <%= if wall.auto, do: "auto · #{wall.material_reflection_db} dB", else: "#{wall.attenuation_db} dB" %>
+                  </span>
+                </div>
+
+                <div class="field-row">
+                  <label for={"wall-z-#{wall.id}"}>Height (z)</label>
+                  <input
+                    type="number"
+                    id={"wall-z-#{wall.id}"}
+                    name="value"
+                    min="-5"
+                    max="5"
+                    step="0.1"
+                    value={format_z(wall.z)}
+                    phx-change="set_wall_z"
+                    phx-value-id={wall.id}
+                    phx-debounce="300"
+                  />
+                  <span class="muted">m</span>
+                </div>
+              </div>
+            </div>
+          </section>
           <section class="panel telemetry">
             <div class="panel-head compact">
               <h2>Telemetry</h2>
@@ -395,7 +627,7 @@ defmodule ChronosWeb.SimLive do
     """
   end
 
-  defp build_frame(scenario, noise_power) do
+  defp build_frame(scenario, noise_power, tx_power) do
     scenario
     |> Scenario.world()
     |> SimFrame.from_world(
@@ -403,18 +635,95 @@ defmodule ChronosWeb.SimLive do
       seed: @seed,
       bounds: Scenario.bounds(scenario),
       sample_rate: 48_000.0,
-      noise_power: noise_power
+      noise_power: noise_power,
+      tx_power: tx_power
     )
   end
 
-  defp start_sim(scenario, speed_ms, noise_power) do
+  defp start_sim(scenario, speed_ms, noise_power, tx_power) do
     SimSupervisor.start_sim(
       scenario: scenario,
       seed: @seed,
       tick_ms: speed_ms,
       noise_power: noise_power,
+      tx_power: tx_power,
       owner: self()
     )
+  end
+
+  # Assigns a fresh frame and rebuilds the editing-panel view model from it
+  # (the frame already carries every node/wall property the panel displays).
+  defp put_frame(socket, frame) do
+    assign(socket,
+      frame: frame,
+      panel: panel_view(frame, socket.assigns.tx_power),
+      error: nil
+    )
+  end
+
+  defp panel_view(frame, tx_power) do
+    %{
+      tx_power: tx_power,
+      nodes:
+        Enum.map(frame.nodes, fn node ->
+          %{id: node.id, type: node.type, z: Enum.at(node.pos, 2)}
+        end),
+      walls: Enum.map(frame.walls, &panel_wall/1),
+      wall_count: length(frame.walls),
+      max_walls: PanelEdit.max_walls()
+    }
+  end
+
+  defp panel_wall(wall) do
+    material = Material.get(wall.material)
+    zs = Enum.map(wall.vertices, &Enum.at(&1, 2))
+    z = if zs == [], do: 0.0, else: Enum.sum(zs) / length(zs)
+
+    %{
+      id: wall.id,
+      material: wall.material,
+      auto: is_nil(wall.attenuation_db),
+      attenuation_db: wall.attenuation_db,
+      display_attenuation: wall.attenuation_db || material.reflection_loss_db,
+      material_reflection_db: material.reflection_loss_db,
+      z: z
+    }
+  end
+
+  # One validated panel commit: fetch the live world, apply the pure edit,
+  # replace the world through SimServer, re-render through the normal flow.
+  defp apply_panel_edit(socket, edit) do
+    case socket.assigns.sim do
+      nil ->
+        {:noreply, socket}
+
+      pid ->
+        with {:ok, world, bounds} <- safe_get_world(pid),
+             {:ok, updated} <- edit.(world, bounds),
+             :ok <- SimServer.update_world(pid, updated) do
+          case safe_next_frame(pid) do
+            {:ok, frame} ->
+              {:noreply, socket |> put_frame(frame) |> push_event("sim_frame", frame)}
+
+            {:error, reason} ->
+              {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+          end
+        else
+          {:error, reason} ->
+            Logger.warning("Rejected panel edit: #{inspect(reason)}")
+            {:noreply, socket}
+        end
+    end
+  end
+
+  # The material's own reflection loss for a wall id (used when the Auto
+  # checkbox is unchecked to seed the override slider). Unknown ids fall back
+  # to the default material; PanelEdit rejects the unknown id regardless.
+  defp material_reflection_db(world, id) do
+    case Enum.find(world.walls, fn {wall_id, _wall} -> to_string(wall_id) == id end) do
+      {_id, wall} -> Material.for_wall(wall).reflection_loss_db
+      nil -> Material.default().reflection_loss_db
+    end
   end
 
   defp safe_next_frame(pid) do
@@ -439,7 +748,7 @@ defmodule ChronosWeb.SimLive do
         {:ok, frame} ->
           {:noreply,
            socket
-           |> assign(frame: frame, error: nil)
+           |> put_frame(frame)
            |> push_event("sim_frame", frame)}
 
         {:error, reason} ->
@@ -463,9 +772,13 @@ defmodule ChronosWeb.SimLive do
   defp reset_simulation(socket) do
     case socket.assigns.sim do
       nil ->
-        assign(socket,
-          frame: build_frame(socket.assigns.scenario, socket.assigns.noise_power),
-          error: nil
+        socket
+        |> put_frame(
+          build_frame(
+            socket.assigns.scenario,
+            socket.assigns.noise_power,
+            socket.assigns.tx_power
+          )
         )
 
       pid ->
@@ -474,7 +787,7 @@ defmodule ChronosWeb.SimLive do
         case safe_next_frame(pid) do
           {:ok, frame} ->
             socket
-            |> assign(frame: frame, error: nil)
+            |> put_frame(frame)
             |> push_event("sim_frame", frame)
 
           {:error, reason} ->
@@ -489,14 +802,20 @@ defmodule ChronosWeb.SimLive do
       if ref = socket.assigns.sim_ref, do: Process.demonitor(ref, [:flush])
     end
 
-    case start_sim(socket.assigns.scenario, socket.assigns.speed_ms, socket.assigns.noise_power) do
+    case start_sim(
+           socket.assigns.scenario,
+           socket.assigns.speed_ms,
+           socket.assigns.noise_power,
+           socket.assigns.tx_power
+         ) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
         case safe_next_frame(pid) do
           {:ok, frame} ->
             socket
-            |> assign(sim: pid, sim_ref: ref, running: running?, frame: frame, error: nil)
+            |> assign(sim: pid, sim_ref: ref, running: running?)
+            |> put_frame(frame)
             |> push_event("sim_frame", frame)
 
           {:error, reason} ->
@@ -517,6 +836,12 @@ defmodule ChronosWeb.SimLive do
         )
     end
   end
+
+  defp format_z(value) when is_number(value) do
+    :erlang.float_to_binary(value * 1.0, decimals: 1)
+  end
+
+  defp format_z(_value), do: "0.0"
 
   defp format_ber(value) when is_number(value) do
     :erlang.float_to_binary(value, decimals: 4)

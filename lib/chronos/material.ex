@@ -133,19 +133,25 @@ defmodule Chronos.Material do
     }
   end
 
-  defp fetch(id) when is_atom(id) do
+  @doc """
+  Returns a material by atom or string id, or `nil` when the id is not in the
+  catalogue. Unlike `get/1` there is no concrete fallback, so callers can
+  reject unknown ids (the editing panel, #35).
+  """
+  @spec fetch(id() | nil) :: t() | nil
+  def fetch(id) when is_atom(id) do
     @catalogue
     |> Enum.find(&(elem(&1, 0) == id))
     |> material_struct()
   end
 
-  defp fetch(id) when is_binary(id) do
+  def fetch(id) when is_binary(id) do
     @catalogue
     |> Enum.find(&(Atom.to_string(elem(&1, 0)) == id))
     |> material_struct()
   end
 
-  defp fetch(_id), do: nil
+  def fetch(_id), do: nil
 
   defp material_struct(nil), do: nil
   defp material_struct(entry), do: to_struct(entry)

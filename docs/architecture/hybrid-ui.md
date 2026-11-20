@@ -50,7 +50,11 @@ A frame contains:
   coordinates, then draws grid, walls, paths, nodes, and a scale bar.
 - LOS paths are solid cyan; reflections are dashed orange; diffracted paths
   are long-dashed violet; penetrating paths are dotted pink.
-- Wall labels show the material and its effective reflection loss.
+- Wall labels show the material, its effective reflection loss, and the
+  wall's reference height (mean vertex z). Node size and lightness encode z
+  (higher nodes are larger and lighter, lower nodes smaller and darker) while
+  the hue keeps the tx/rx type readable — height-aware 2D without a new
+  dependency (#35).
 - Before the first frame it draws a "Waiting for the first simulation frame"
   placeholder.
 
@@ -69,7 +73,9 @@ A frame contains:
 ## Controls
 
 `SimLive` handles `toggle`, `step`, `reset`, `speed`, `noise`, `scenario`,
-`toggle_snap`, and `commit_geometry` events. Speed and noise values are
+`toggle_snap`, `commit_geometry`, and the editing-panel events `set_tx_power`,
+`set_wall_attenuation`, `set_wall_auto`, `set_node_z`, `set_wall_z`,
+`set_wall_material`, `add_wall`, and `remove_wall`. Speed and noise values are
 validated against fixed allowlists before being forwarded to `SimServer`. The
 scenario handler rejects unknown ids and resets the tick counter.
 `toggle_snap` flips the snap-to-grid assign (default off) and pushes
@@ -77,15 +83,19 @@ scenario handler rejects unknown ids and resets the tick counter.
 geometry server-side via `Chronos.SceneEdit` (bounds clamp, minimum wall
 length, optional grid snap), replaces the world through
 `SimServer.update_world/2`, and re-renders through the normal `sim_frame`
-flow.
+flow. Panel events parse their form strings and validate through
+`ChronosWeb.ApiParams` (`tx_power` 0..30 integer, attenuation override 0..40
+finite, z −5..+5 finite, material id in the catalogue), then apply the edit
+through `Chronos.PanelEdit` and `SimServer.update_world/2`; `set_tx_power`
+goes to `SimServer.set_tx_power/2` (a render option, like noise).
 
 ## Interactive editing (design lock #20)
 
 The full spec is [interactive-editing.md](../design/interactive-editing.md),
 with the rendering-mode decision in
 [ADR 0002](../adr/0002-interactive-editing-2d-projection.md). Drag editing
-(slice 2, issue #34) is implemented; the panel, save/load, and undo slices
-are still pending.
+(slice 2, issue #34) and the editing panel (slice 3, issue #35) are
+implemented; the save/load and undo slices are still pending.
 
 - `SimCanvas` has drag editing: pointer-event hit-testing (~12 px screen
   radius, DPR-scaled) over nodes, wall endpoints, and whole walls; a
@@ -100,10 +110,18 @@ are still pending.
   above a 0.1 m minimum length. Once a world is edited, the session steps by
   node velocity instead of scenario kinematics so edits are not overwritten;
   Reset restores the pre-edit baseline and the original stepping.
-- The panel will add a TX-power slider, a per-wall attenuation override with
-  an "Auto (use material)" checkbox, a z-height field, a per-wall material
-  picker, and add/remove-wall buttons. Ranges clamp server-side via
-  `ChronosWeb.ApiParams`.
+- The editing panel (#35) adds a TX-power slider (0..30 dBm, default 10,
+  debounced `phx-change`, wired to `SimServer.set_tx_power/2`), a per-wall
+  attenuation override (0..40 dB) with an "Auto (use material)" checkbox
+  (Auto = `attenuation_db: nil`, the material's reflection loss applies;
+  unchecking Auto seeds the override with the material's value), a z-height
+  field (−5..+5 m) per node and per wall, a per-wall picker over the
+  11-material catalogue, and add/remove-wall buttons bounded by the scene
+  item cap (1024). A wall's single z field edits its reference height (mean
+  vertex z) by a pure z translation, keeping the wall's shape and vertical
+  extent; node z edits preserve x/y. Drag never edits z. The TX/RX node count
+  stays fixed. Ranges clamp server-side via `ChronosWeb.ApiParams` and
+  `Chronos.PanelEdit` re-guards every commit before `SimServer.update_world/2`.
 - Scene save/load uses the existing `/api/scenes` API, with a dirty indicator
   against the last saved/loaded snapshot; undo (~50 entries, cleared on
   load/reset) and an Export CSV menu over the existing `/api/export`

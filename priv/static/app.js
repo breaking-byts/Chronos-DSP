@@ -60,6 +60,35 @@
     return Math.round(value / step) * step;
   }
 
+  // Height-aware 2D cues (#35, design "Rendering mode"): z is encoded in node
+  // size/color and wall labels — no 3D, no new dependency. z is clamped to the
+  // panel's -5..+5 m editing range for the visual encoding only.
+  const Z_VISUAL_RANGE = 5;
+  function mixHex(hexA, hexB, t) {
+    const a = parseInt(hexA.slice(1), 16);
+    const b = parseInt(hexB.slice(1), 16);
+    const channel = (shift) => {
+      const from = (a >> shift) & 0xff;
+      const to = (b >> shift) & 0xff;
+      return Math.round(from + (to - from) * t);
+    };
+    return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`;
+  }
+  // Higher nodes lighten toward white; lower nodes darken toward the
+  // background. The tx/rx hue is preserved so type stays readable.
+  function heightColor(base, z) {
+    const t = clamp(z / Z_VISUAL_RANGE, -1, 1);
+    return t >= 0 ? mixHex(base, "#ffffff", t * 0.55) : mixHex(base, COLORS.background, -t * 0.55);
+  }
+  function nodeRadius(z) {
+    return clamp(6 + z * 0.8, 3, 10);
+  }
+  function meanZ(vertices) {
+    const list = vertices || [];
+    if (!list.length) return 0;
+    return list.reduce((sum, v) => sum + (Number(v[2]) || 0), 0) / list.length;
+  }
+
   function clampAxis(value, lo, hi) {
     // lo > hi means the entity is wider than the clamp range; hold it still.
     return lo > hi ? 0 : clamp(value, lo, hi);
@@ -307,12 +336,16 @@
         ctx.stroke();
 
         const loss = wall.loss_db ?? wall.attenuation_db;
-        if (vertices.length >= 2 && loss) {
+        if (vertices.length >= 2) {
           const [x, y] = vertices[0];
           const material = wall.material ? `${wall.material} ` : "";
+          const lossText = loss != null ? `${loss} dB · ` : "";
+          // Wall labels carry material, effective reflection loss, and the
+          // wall's reference height (mean vertex z) — height-aware 2D (#35).
+          const zText = `z ${formatNumber(meanZ(wall.vertices))} m`;
           ctx.fillStyle = COLORS.muted;
           ctx.font = "500 10px ui-monospace, SFMono-Regular, monospace";
-          ctx.fillText(`${material}${loss} dB`, x + 4, y - 6);
+          ctx.fillText(`${material}${lossText}${zText}`, x + 4, y - 6);
         }
       });
 
@@ -371,12 +404,15 @@
       nodes.forEach((node) => {
         if (!node.pos) return;
         const [x, y] = project(node.pos);
-        const color = node.type === "tx" ? COLORS.tx : node.type === "rx" ? COLORS.rx : COLORS.text;
-        const radius = 6;
+        const z = Number(node.pos[2]) || 0;
+        const base = node.type === "tx" ? COLORS.tx : node.type === "rx" ? COLORS.rx : COLORS.text;
+        // Height cue (#35): size and lightness encode z; hue keeps tx/rx type.
+        const color = heightColor(base, z);
+        const radius = nodeRadius(z);
 
         ctx.beginPath();
         ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
-        ctx.fillStyle = `${color}22`;
+        ctx.fillStyle = `${base}22`;
         ctx.fill();
 
         ctx.beginPath();
@@ -392,6 +428,9 @@
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
         ctx.fillText(node.id, x + radius + 7, y);
+        ctx.fillStyle = COLORS.muted;
+        ctx.font = "500 9px ui-monospace, SFMono-Regular, monospace";
+        ctx.fillText(`z ${formatNumber(z)} m`, x + radius + 7, y + 12);
       });
 
       ctx.restore();

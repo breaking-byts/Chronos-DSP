@@ -35,8 +35,10 @@ dashboard renders a top-down XY view.
 | `Chronos.Export` | Deterministic RFC 4180 CSV formatting for metrics rows and complex samples. |
 | `Chronos.SceneStore` | File-backed named scenes: traversal-safe names, atomic writes, atom-safe ids, material-aware walls, capped storage with oldest-first eviction (ephemeral, ADR 0001). |
 | `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
+| `Chronos.SceneEdit` | Pure server-side validation/application of drag commits (node move, wall translation, vertex move): bounds clamp, min-edge guard, z preserved. |
+| `Chronos.PanelEdit` | Pure server-side validation/application of panel property edits (attenuation/Auto, z, material, add/remove wall); bounds and catalogue guards. |
 | `Chronos.SimFrame` | JSON-safe frame (`from_world/2`); `metrics_and_dsp/2` (API) and `metrics/2` (CSV export) skip scene/display geometry; `default_tx_block/1` is the shared deterministic QPSK test block. |
-| `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power. Emits session lifecycle telemetry. |
+| `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power, transmit power; `update_world/2`/`get_world/1` for editing (keeps an initial-world baseline). Emits session lifecycle telemetry. |
 | `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
 | `Chronos.Runtime` | App version, build/runtime env, NIF status, timestamp, uptime for health JSON. |
 | `Chronos.Telemetry` | Idempotent `:telemetry` handler attachment; logs Chronos events via stdlib Logger with structured metadata (no JSON-formatter dependency). |

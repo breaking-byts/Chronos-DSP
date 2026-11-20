@@ -30,6 +30,10 @@ defmodule ChronosWeb.ApiParams do
   @default_tx_power 10
   @min_tx_power 0
   @max_tx_power 30
+  @min_attenuation 0.0
+  @max_attenuation 40.0
+  @min_z -5.0
+  @max_z 5.0
 
   @doc """
   The unsigned 32-bit ceiling for API noise seeds. `Chronos.SimFrame` mixes the
@@ -71,6 +75,74 @@ defmodule ChronosWeb.ApiParams do
       {:ok, value}
     else
       {:error, "tx_power must be an integer between #{minimum} and #{maximum}"}
+    end
+  end
+
+  @doc """
+  The per-wall attenuation-override bounds in dB (`0..40`) for the editing
+  panel (#35), matching the interactive-editing design lock. Mirrored by
+  `Chronos.PanelEdit.attenuation_range/0`.
+  """
+  @spec attenuation_range() :: {float(), float()}
+  def attenuation_range, do: {@min_attenuation, @max_attenuation}
+
+  @doc """
+  Validates a per-wall attenuation override: a finite number in `0..40` dB.
+  Form values arrive as strings, so the LiveView parses them before calling;
+  non-numbers, negatives, out-of-range and non-finite values are rejected.
+  `nil` is NOT accepted here — "Auto (use material)" is a separate checkbox
+  event that clears `wall.attenuation_db` to `nil`.
+  Returns `{:ok, value}` or `{:error, message}`.
+  """
+  @spec validate_attenuation(term()) :: {:ok, number()} | {:error, String.t()}
+  def validate_attenuation(value) do
+    {minimum, maximum} = attenuation_range()
+
+    if is_number(value) and Chronos.Channel.Physics.finite?(value) and
+         value >= minimum and value <= maximum do
+      {:ok, value}
+    else
+      {:error, "attenuation must be a number between #{minimum} and #{maximum} dB"}
+    end
+  end
+
+  @doc """
+  The z-height bounds in metres (`-5..+5`) for the editing panel's node/wall
+  height fields (#35), matching the interactive-editing design lock. Mirrored
+  by `Chronos.PanelEdit.z_range/0`.
+  """
+  @spec z_range() :: {float(), float()}
+  def z_range, do: {@min_z, @max_z}
+
+  @doc """
+  Validates a z-height edit: a finite number in `-5..+5` m. Form values arrive
+  as strings, so the LiveView parses them before calling; non-numbers,
+  out-of-range and non-finite values are rejected.
+  Returns `{:ok, value}` or `{:error, message}`.
+  """
+  @spec validate_z(term()) :: {:ok, number()} | {:error, String.t()}
+  def validate_z(value) do
+    {minimum, maximum} = z_range()
+
+    if is_number(value) and Chronos.Channel.Physics.finite?(value) and
+         value >= minimum and value <= maximum do
+      {:ok, value}
+    else
+      {:error, "z must be a number between #{minimum} and #{maximum} m"}
+    end
+  end
+
+  @doc """
+  Validates a wall material id against the 11-material `Chronos.Material`
+  catalogue (#35). Accepts a string or atom id present in the catalogue and
+  returns the catalogue atom; unknown ids are rejected (never defaulted).
+  Returns `{:ok, atom_id}` or `{:error, message}`.
+  """
+  @spec validate_material(term()) :: {:ok, atom()} | {:error, String.t()}
+  def validate_material(value) do
+    case Chronos.Material.fetch(value) do
+      nil -> {:error, "material must be one of the catalogue ids"}
+      material -> {:ok, material.id}
     end
   end
 

@@ -82,4 +82,97 @@ defmodule Chronos.SimServerTest do
       assert {:ok, ^custom, _bounds} = SimServer.get_world(pid)
     end
   end
+
+  describe "set_tx_power/2 (panel slider, #35)" do
+    # A static world (zero velocities) keeps received power comparable across
+    # frames: only the tx_power render option changes.
+    defp static_world do
+      World.new()
+      |> World.add_node(%World.Node{
+        id: :tx1,
+        type: :tx,
+        pos: {0.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+      |> World.add_node(%World.Node{
+        id: :rx1,
+        type: :rx,
+        pos: {2.0, 0.0, 0.0},
+        vel: {0.0, 0.0, 0.0}
+      })
+    end
+
+    defp static_sim(opts \\ []) do
+      SimServer.start_link(
+        Keyword.merge([world: static_world(), seed: 7, noise_power: 0.0], opts)
+      )
+    end
+
+    defp received_power(pid) do
+      {:ok, frame} = SimServer.next_frame(pid)
+      frame.metrics.received_power
+    end
+
+    test "defaults to 10 dBm, matching the pre-#35 render" do
+      {:ok, pid} = static_sim()
+      {:ok, explicit} = static_sim(tx_power: 10)
+      assert received_power(pid) == received_power(explicit)
+    end
+
+    test "scales the rendered signal by 10 ** ((tx_power - 10) / 10)" do
+      {:ok, pid} = static_sim()
+      reference = received_power(pid)
+      assert reference > 0.0
+
+      for tx_power <- [0, 20, 30] do
+        assert :ok = SimServer.set_tx_power(pid, tx_power)
+        expected = reference * :math.pow(10.0, (tx_power - 10) / 10.0)
+        assert_in_delta received_power(pid), expected, expected * 1.0e-5
+      end
+    end
+
+    test "clamps out-of-range integers into 0..30" do
+      {:ok, pid} = static_sim()
+      assert :ok = SimServer.set_tx_power(pid, 99)
+      high = received_power(pid)
+      assert :ok = SimServer.set_tx_power(pid, 30)
+      assert received_power(pid) == high
+
+      assert :ok = SimServer.set_tx_power(pid, -5)
+      low = received_power(pid)
+      assert :ok = SimServer.set_tx_power(pid, 0)
+      assert received_power(pid) == low
+    end
+
+    test "rejects non-integers without touching the session" do
+      {:ok, pid} = static_sim()
+      before = received_power(pid)
+
+      for value <- [10.5, "10", :foo, nil] do
+        assert {:error, :invalid_value} = SimServer.set_tx_power(pid, value)
+      end
+
+      assert received_power(pid) == before
+    end
+
+    test "survives reset and scenario switches (a render option, not geometry)" do
+      {:ok, pid} = SimServer.start_link(seed: 7, noise_power: 0.0, tx_power: 20)
+      {:ok, frame} = SimServer.next_frame(pid)
+      boosted = frame.metrics.received_power
+
+      assert :ok = SimServer.reset(pid)
+      {:ok, frame} = SimServer.next_frame(pid)
+      assert frame.metrics.received_power == boosted
+
+      assert :ok = SimServer.set_scenario(pid, "open_field")
+      {:ok, frame} = SimServer.next_frame(pid)
+
+      # Same scenario/seed/tick with the same tx_power opt renders identically.
+      {:ok, reference} =
+        SimServer.start_link(scenario: "open_field", seed: 7, noise_power: 0.0, tx_power: 20)
+
+      {:ok, ref_frame} = SimServer.next_frame(reference)
+      assert frame.metrics.received_power == ref_frame.metrics.received_power
+    end
+  end
 end
