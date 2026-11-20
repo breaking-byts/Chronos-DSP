@@ -73,9 +73,11 @@ A frame contains:
 ## Controls
 
 `SimLive` handles `toggle`, `step`, `reset`, `speed`, `noise`, `scenario`,
-`toggle_snap`, `commit_geometry`, and the editing-panel events `set_tx_power`,
+`toggle_snap`, `commit_geometry`, the editing-panel events `set_tx_power`,
 `set_wall_attenuation`, `set_wall_auto`, `set_node_z`, `set_wall_z`,
-`set_wall_material`, `add_wall`, and `remove_wall`. Speed and noise values are
+`set_wall_material`, `add_wall`, and `remove_wall`, and the scene events
+`set_scene_name`, `save_scene`, `load_scene`, and `delete_scene` (#36).
+Speed and noise values are
 validated against fixed allowlists before being forwarded to `SimServer`. The
 scenario handler rejects unknown ids and resets the tick counter.
 `toggle_snap` flips the snap-to-grid assign (default off) and pushes
@@ -94,8 +96,9 @@ goes to `SimServer.set_tx_power/2` (a render option, like noise).
 The full spec is [interactive-editing.md](../design/interactive-editing.md),
 with the rendering-mode decision in
 [ADR 0002](../adr/0002-interactive-editing-2d-projection.md). Drag editing
-(slice 2, issue #34) and the editing panel (slice 3, issue #35) are
-implemented; the save/load and undo slices are still pending.
+(slice 2, issue #34), the editing panel (slice 3, issue #35), and scene
+save/load + dirty state (slice 4, issue #36) are implemented; the undo
+slice (#37) is still pending.
 
 - `SimCanvas` has drag editing: pointer-event hit-testing (~12 px screen
   radius, DPR-scaled) over nodes, wall endpoints, and whole walls; a
@@ -122,10 +125,32 @@ implemented; the save/load and undo slices are still pending.
   extent; node z edits preserve x/y. Drag never edits z. The TX/RX node count
   stays fixed. Ranges clamp server-side via `ChronosWeb.ApiParams` and
   `Chronos.PanelEdit` re-guards every commit before `SimServer.update_world/2`.
-- Scene save/load uses the existing `/api/scenes` API, with a dirty indicator
-  against the last saved/loaded snapshot; undo (~50 entries, cleared on
-  load/reset) and an Export CSV menu over the existing `/api/export`
-  endpoints round out the controls.
+- Scene save/load (#36) calls `Chronos.SceneStore` directly from the
+  server-side LiveView instead of HTTP-looping through `/api/scenes`: the
+  same validation, caps, and oldest-first-by-mtime eviction apply, and the
+  JSON controllers remain the public API surface. `save_scene` serializes
+  the live world with `Chronos.World.to_scene/3` (string keys/ids — atom ids
+  are stringified, never the reverse) and persists it via `SceneStore.save`;
+  `load_scene` reads via `SceneStore.get`, converts with the atom-safe
+  `SceneStore.scene_to_world/1` (existing atoms reused, unknown ids stay
+  strings), and replaces the session world through `SimServer.update_world/2`.
+  Every failure (invalid name, invalid/oversized scene, missing scene,
+  storage error) surfaces a friendly banner; at the 100-scene cap the save
+  message notes the oldest-first eviction. A "Scenes" panel shows the
+  N/100 counter, the eviction/ephemeral note (ADR 0001), a name input +
+  Save scene button, and a picker with per-scene Load/Delete buttons.
+- Dirty state (#36): a `scene_baseline` assign holds the normalized
+  geometry snapshot (`Chronos.SceneSnapshot.from_world/1` — node
+  ids/types/positions and wall ids/vertices/normals/material/attenuation,
+  string ids, floats, sorted; never `time_s` or velocities) of the world at
+  the last save/load/reset, initialized to the starting scenario world.
+  The dirty dot is recomputed on drag commits and panel edits by comparing
+  the edited world's snapshot to the baseline — NOT on ticks, so simulation
+  motion alone never lights it. Save/load/reset/scenario switches replace
+  the baseline and clear the dot, and clear the `undo_stack` assign: the
+  slice #37 hook that the undo stack will populate (~50 entries).
+- Undo (~50 entries, cleared on load/reset — #37) and an Export CSV menu
+  over the existing `/api/export` endpoints round out the controls.
 
 ## Styling
 

@@ -59,6 +59,13 @@ defmodule Chronos.SceneStore do
   def max_scene_items, do: @max_scene_items
 
   @doc """
+  The scene-count cap (100). The save/load UI shows an "N/100 scenes" counter
+  and the oldest-first-by-mtime eviction note against this cap (#36).
+  """
+  @spec max_scenes() :: pos_integer()
+  def max_scenes, do: @max_scenes
+
+  @doc """
   Lists every stored scene sorted by name.
 
   Unreadable or malformed files are skipped rather than raising. A missing

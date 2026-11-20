@@ -257,6 +257,63 @@ defmodule Chronos.World do
     end)
   end
 
+  @doc """
+  Serializes the world as a named scene map for `Chronos.SceneStore` (#36).
+
+  String keys and string ids throughout: atom ids are stringified, never the
+  reverse, so untrusted scene data never grows the atom table (the inverse
+  conversion is `Chronos.SceneStore.scene_to_world/1`). Positions and
+  velocities become `[x, y, z]` float lists; walls carry their catalogue
+  material id and include `attenuation_db` only when an explicit override is
+  set. Nodes and walls are sorted by id so repeated saves are byte-stable.
+  Pass `description: text` to attach an optional scene description.
+  """
+  @spec to_scene(t(), String.t(), keyword()) :: map()
+  def to_scene(%__MODULE__{} = world, name, opts \\ []) when is_binary(name) do
+    scene = %{
+      "name" => name,
+      "nodes" =>
+        world.nodes
+        |> Map.values()
+        |> Enum.sort_by(&to_string(&1.id))
+        |> Enum.map(&node_to_scene/1),
+      "walls" =>
+        world.walls
+        |> Map.values()
+        |> Enum.sort_by(&to_string(&1.id))
+        |> Enum.map(&wall_to_scene/1)
+    }
+
+    case Keyword.get(opts, :description) do
+      description when is_binary(description) -> Map.put(scene, "description", description)
+      _other -> scene
+    end
+  end
+
+  defp node_to_scene(%Node{id: id, type: type, pos: pos, vel: vel}) do
+    %{
+      "id" => to_string(id),
+      "type" => Atom.to_string(type),
+      "pos" => vec_to_list(pos),
+      "vel" => vec_to_list(vel)
+    }
+  end
+
+  defp wall_to_scene(%Wall{} = wall) do
+    base = %{
+      "id" => to_string(wall.id),
+      "vertices" => Enum.map(wall.vertices, &vec_to_list/1),
+      "normal" => vec_to_list(wall.normal),
+      "material" => to_string(wall.material)
+    }
+
+    if is_nil(wall.attenuation_db),
+      do: base,
+      else: Map.put(base, "attenuation_db", wall.attenuation_db)
+  end
+
+  defp vec_to_list({x, y, z}), do: [x * 1.0, y * 1.0, z * 1.0]
+
   @spec nodes_by_type(%__MODULE__{}, atom()) :: list(Node.t())
   def nodes_by_type(%__MODULE__{nodes: nodes}, type) do
     nodes

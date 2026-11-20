@@ -15,7 +15,7 @@ dashboard renders a top-down XY view.
 
 | Module | Responsibility |
 | --- | --- |
-| `Chronos.World` | Immutable-by-replacement world state: `Node` (`:tx`/`:rx`) and planar `Wall` structs, lookup, and kinematic `step/2`. |
+| `Chronos.World` | Immutable-by-replacement world state: `Node` (`:tx`/`:rx`) and planar `Wall` structs, lookup, kinematic `step/2`, and `to_scene/3` serialization. |
 | `Chronos.Geometry` | Vector, plane, reflection, polygon containment, and segment/polygon intersection math. |
 | `Chronos.Channel` | Orchestrates the four path models (LOS, reflections, diffraction, transmission) per receiver; occlusion tests; strongest-first path cap across all transmitters; shared-option validation. |
 | `Chronos.Channel.Physics` | Shared propagation conventions: free-space gain, dB conversion, transmit-power gain (`:tx_power`), path length, Doppler, finite guards, and `validate_opts!/1`. |
@@ -37,6 +37,7 @@ dashboard renders a top-down XY view.
 | `Chronos.Scene` | Stable XY bounds from nodes/walls and projection into pixels. |
 | `Chronos.SceneEdit` | Pure server-side validation/application of drag commits (node move, wall translation, vertex move): bounds clamp, min-edge guard, z preserved. |
 | `Chronos.PanelEdit` | Pure server-side validation/application of panel property edits (attenuation/Auto, z, material, add/remove wall); bounds and catalogue guards. |
+| `Chronos.SceneSnapshot` | Normalized geometry snapshot (node/wall positions, material, attenuation; no `time_s`/velocities) used to compute the dirty-state indicator. |
 | `Chronos.SimFrame` | JSON-safe frame (`from_world/2`); `metrics_and_dsp/2` (API) and `metrics/2` (CSV export) skip scene/display geometry; `default_tx_block/1` is the shared deterministic QPSK test block. |
 | `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power, transmit power; `update_world/2`/`get_world/1` for editing (keeps an initial-world baseline). Emits session lifecycle telemetry. |
 | `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
