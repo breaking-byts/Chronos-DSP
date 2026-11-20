@@ -13,6 +13,7 @@ defmodule ChronosWeb.SimLive do
 
   alias Chronos.DSP
   alias Chronos.Scenario
+  alias Chronos.SceneEdit
   alias Chronos.SimFrame
   alias Chronos.SimServer
   alias Chronos.SimSupervisor
@@ -53,6 +54,7 @@ defmodule ChronosWeb.SimLive do
         noise_power: @default_noise_power,
         noise_levels: @noise_levels,
         running: false,
+        snap_to_grid: false,
         sim: nil,
         sim_ref: nil,
         error: nil,
@@ -141,6 +143,22 @@ defmodule ChronosWeb.SimLive do
 
   def handle_event("reset", _params, socket) do
     {:noreply, reset_simulation(socket)}
+  end
+
+  def handle_event("toggle_snap", _params, socket) do
+    enabled = !socket.assigns.snap_to_grid
+
+    {:noreply,
+     socket
+     |> assign(snap_to_grid: enabled)
+     |> push_event("snap_state", %{enabled: enabled})}
+  end
+
+  def handle_event("commit_geometry", params, socket) do
+    case socket.assigns.sim do
+      nil -> {:noreply, socket}
+      pid -> commit_geometry(pid, params, socket)
+    end
   end
 
   def handle_event("speed", %{"ms" => ms}, socket) do
@@ -236,7 +254,13 @@ defmodule ChronosWeb.SimLive do
             <span class="tick">tick <%= @frame.tick %></span>
           </div>
 
-          <div id="sim-canvas" class="scene-canvas" phx-hook="SimCanvas" phx-update="ignore">
+          <div
+            id="sim-canvas"
+            class="scene-canvas"
+            phx-hook="SimCanvas"
+            phx-update="ignore"
+            data-snap={@snap_to_grid}
+          >
             <canvas aria-label="Top-down view of the simulated scene"></canvas>
           </div>
 
@@ -281,6 +305,14 @@ defmodule ChronosWeb.SimLive do
               </button>
               <button class="button" phx-click="step">Step</button>
               <button class="button ghost" phx-click="reset">Reset</button>
+              <button
+                class={["button ghost", @snap_to_grid && "is-active"]}
+                phx-click="toggle_snap"
+                aria-pressed={to_string(@snap_to_grid)}
+                title="Snap canvas drags to the drawn grid"
+              >
+                Snap grid
+              </button>
             </div>
 
             <div class="control-group">
@@ -387,6 +419,41 @@ defmodule ChronosWeb.SimLive do
 
   defp safe_next_frame(pid) do
     SimServer.next_frame(pid)
+  catch
+    :exit, reason ->
+      Logger.warning("Simulation call failed: #{inspect(reason)}")
+      {:error, "process unavailable"}
+  end
+
+  # One commit per drag release: validate server-side (bounds clamp, min wall
+  # length, snap), replace the world, then re-render through the normal flow.
+  defp commit_geometry(pid, params, socket) do
+    with {:ok, world, bounds} <- safe_get_world(pid),
+         {:ok, updated} <-
+           SceneEdit.apply(world, bounds, params,
+             snap: socket.assigns.snap_to_grid,
+             grid_step: params["grid_step"]
+           ),
+         :ok <- SimServer.update_world(pid, updated) do
+      case safe_next_frame(pid) do
+        {:ok, frame} ->
+          {:noreply,
+           socket
+           |> assign(frame: frame, error: nil)
+           |> push_event("sim_frame", frame)}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+      end
+    else
+      {:error, reason} ->
+        Logger.warning("Rejected geometry commit: #{inspect(reason)}")
+        {:noreply, socket}
+    end
+  end
+
+  defp safe_get_world(pid) do
+    SimServer.get_world(pid)
   catch
     :exit, reason ->
       Logger.warning("Simulation call failed: #{inspect(reason)}")

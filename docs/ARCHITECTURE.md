@@ -70,7 +70,9 @@ tick are UI-local state.
 1. `SimLive` starts a `SimServer` with a scenario id, seed `7`, tick interval,
    and noise power.
 2. On each tick, `SimServer.next_frame/1` calls `SimFrame.from_world/2` for the
-   current world, then advances the scenario by `tick_ms / 1000` seconds.
+   current world, then advances it by `tick_ms / 1000` seconds — via the
+   scenario's kinematics for an unedited built-in, or `World.step/2` (linear
+   velocity) once the world has been edited.
 3. `SimFrame`:
    - computes display paths directly from `Channel` (LOS lines, reflection,
      diffraction, and transmission polylines);

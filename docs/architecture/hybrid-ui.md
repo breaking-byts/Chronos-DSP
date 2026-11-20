@@ -68,26 +68,40 @@ A frame contains:
 
 ## Controls
 
-`SimLive` handles `toggle`, `step`, `reset`, `speed`, `noise`, and `scenario`
-events. Speed and noise values are validated against fixed allowlists before
-being forwarded to `SimServer`. The scenario handler rejects unknown ids and
-resets the tick counter.
+`SimLive` handles `toggle`, `step`, `reset`, `speed`, `noise`, `scenario`,
+`toggle_snap`, and `commit_geometry` events. Speed and noise values are
+validated against fixed allowlists before being forwarded to `SimServer`. The
+scenario handler rejects unknown ids and resets the tick counter.
+`toggle_snap` flips the snap-to-grid assign (default off) and pushes
+`snap_state` to the canvas hook. `commit_geometry` re-validates the dragged
+geometry server-side via `Chronos.SceneEdit` (bounds clamp, minimum wall
+length, optional grid snap), replaces the world through
+`SimServer.update_world/2`, and re-renders through the normal `sim_frame`
+flow.
 
 ## Interactive editing (design lock #20)
 
-Locked design, not yet implemented; the full spec is
-[interactive-editing.md](../design/interactive-editing.md), with the
-rendering-mode decision in
-[ADR 0002](../adr/0002-interactive-editing-2d-projection.md).
+The full spec is [interactive-editing.md](../design/interactive-editing.md),
+with the rendering-mode decision in
+[ADR 0002](../adr/0002-interactive-editing-2d-projection.md). Drag editing
+(slice 2, issue #34) is implemented; the panel, save/load, and undo slices
+are still pending.
 
-- `SimCanvas` gains drag editing: pointer-event hit-testing (~12 px screen
-  radius, DPR-scaled), a client-side preview that redraws immediately with
-  zero server round-trips per move, and ONE geometry-commit event pushed on
-  release; the server then re-renders the frame through the existing
-  `sim_frame` flow. Drag stays in the XY plane — frames already carry z, and
-  height is edited via a panel numeric field, not by dragging.
-- The panel adds a TX-power slider, a per-wall attenuation override with an
-  "Auto (use material)" checkbox, a z-height field, a per-wall material
+- `SimCanvas` has drag editing: pointer-event hit-testing (~12 px screen
+  radius, DPR-scaled) over nodes, wall endpoints, and whole walls; a
+  client-side preview that redraws immediately with zero server round-trips
+  per move; and ONE `commit_geometry` event pushed on release, which the
+  server re-validates (`Chronos.SceneEdit`) before re-rendering the frame
+  through the existing `sim_frame` flow. Drag stays in the XY plane — frames
+  already carry z, and height will be edited via a panel numeric field, not
+  by dragging. Desktop mouse only; touch pointers are ignored. A snap-to-grid
+  toggle (default off) snaps drags to the drawn grid spacing; drags clamp to
+  the frame bounds plus a 0.25 m margin, and endpoint drags keep wall edges
+  above a 0.1 m minimum length. Once a world is edited, the session steps by
+  node velocity instead of scenario kinematics so edits are not overwritten;
+  Reset restores the pre-edit baseline and the original stepping.
+- The panel will add a TX-power slider, a per-wall attenuation override with
+  an "Auto (use material)" checkbox, a z-height field, a per-wall material
   picker, and add/remove-wall buttons. Ranges clamp server-side via
   `ChronosWeb.ApiParams`.
 - Scene save/load uses the existing `/api/scenes` API, with a dirty indicator
