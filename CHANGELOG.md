@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Scene save/load UI + dirty state (issue #36, interactive-editing slice 4):
+  a "Scenes" panel in `ChronosWeb.SimLive` with a name input + "Save scene"
+  button, a scene picker (Load/Delete per scene), an "N/100 scenes" counter,
+  and the oldest-first-by-mtime eviction + ephemeral-storage note (ADR 0001).
+  The server-side LiveView calls `Chronos.SceneStore` directly (same
+  validation, caps, and eviction as `POST/GET /api/scenes`, no HTTP
+  round-trip to itself; the JSON controllers remain the public API).
+  `Chronos.World.to_scene/3` serializes a world to the scene schema (string
+  keys/ids, float vec3 lists, sorted for byte-stable saves); loading reuses
+  the atom-safe `SceneStore.scene_to_world/1` and replaces the session world
+  through `SimServer.update_world/2`. Every save/load/delete failure
+  (invalid or traversal-unsafe name, invalid/oversized scene, missing scene,
+  storage error) surfaces a friendly banner instead of crashing; saving at
+  the 100-scene cap reports the oldest-first eviction. A dirty dot compares
+  the live world against a normalized geometry snapshot
+  (`Chronos.SceneSnapshot`: positions, walls, material, attenuation, z —
+  never tick/velocity noise), recomputed on drag/panel edits and cleared on
+  save/load/reset/scenario switch. Loading, resetting, and switching
+  scenarios also clear the new `undo_stack` assign — the hook slice #37
+  populates with the ~50-entry undo history. `SceneStore.max_scenes/0`
+  exposes the count cap. DSP renderers untouched (parity preserved); no new
+  dependencies or build steps.
+
 - `tx_power` channel opt (issue #33, interactive-editing slice 1): transmit
   power in dBm, integer `0..30`, default `10`. Validated uniformly by
   `Chronos.Channel.Physics.validate_opts!/1` (negatives, floats, out-of-range

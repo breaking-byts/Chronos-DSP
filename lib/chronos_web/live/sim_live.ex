@@ -16,9 +16,12 @@ defmodule ChronosWeb.SimLive do
   alias Chronos.PanelEdit
   alias Chronos.Scenario
   alias Chronos.SceneEdit
+  alias Chronos.SceneSnapshot
+  alias Chronos.SceneStore
   alias Chronos.SimFrame
   alias Chronos.SimServer
   alias Chronos.SimSupervisor
+  alias Chronos.World
   alias ChronosWeb.ApiParams
 
   @seed 7
@@ -65,7 +68,18 @@ defmodule ChronosWeb.SimLive do
         sim: nil,
         sim_ref: nil,
         error: nil,
-        nif_loaded: DSP.nif_loaded?()
+        nif_loaded: DSP.nif_loaded?(),
+        # Scene save/load + dirty state (#36). The baseline starts at the
+        # starting scenario world and is replaced on save/load/reset.
+        scenes: scene_names(),
+        max_scenes: SceneStore.max_scenes(),
+        scene_name_input: "",
+        scene_message: nil,
+        scene_baseline: SceneSnapshot.from_world(Scenario.world(scenario)),
+        scene_dirty: false,
+        # Undo hook for slice #37: #36 only establishes and clears the stack
+        # (on load/reset/scenario switch); #37 populates the ~50 entries.
+        undo_stack: []
       )
 
     if connected?(socket) do
@@ -200,6 +214,7 @@ defmodule ChronosWeb.SimLive do
             socket
             |> assign(scenario: id)
             |> put_frame(frame)
+            |> set_scene_baseline(Scenario.world(id))
 
           pid ->
             :ok = SimServer.set_scenario(pid, id)
@@ -210,6 +225,7 @@ defmodule ChronosWeb.SimLive do
                 |> assign(scenario: id)
                 |> put_frame(frame)
                 |> push_event("sim_frame", frame)
+                |> set_scene_baseline(Scenario.world(id))
 
               {:error, reason} ->
                 assign(socket, scenario: id, error: "Simulation error: #{reason}")
@@ -299,6 +315,69 @@ defmodule ChronosWeb.SimLive do
 
   def handle_event("remove_wall", %{"id" => id}, socket) do
     apply_panel_edit(socket, fn world, _bounds -> PanelEdit.remove_wall(world, id) end)
+  end
+
+  # -- Scene save/load (#36) ------------------------------------------------
+  # The LiveView is server-side, so it calls Chronos.SceneStore directly
+  # rather than HTTP-looping through /api/scenes: same validation, caps and
+  # oldest-first eviction, without a network round-trip to itself. The JSON
+  # controllers remain the public API surface. Scene names are validated
+  # server-side by SceneStore (traversal-safe, <= 64 chars); client input is
+  # never trusted.
+
+  def handle_event("set_scene_name", %{"name" => name}, socket) when is_binary(name) do
+    {:noreply, assign(socket, scene_name_input: name)}
+  end
+
+  def handle_event("save_scene", params, socket) do
+    name =
+      case Map.get(params, "name", socket.assigns.scene_name_input) do
+        value when is_binary(value) -> String.trim(value)
+        _other -> ""
+      end
+
+    case socket.assigns.sim do
+      nil ->
+        {:noreply,
+         put_scene_message(socket, :error, "Start the simulation before saving a scene.")}
+
+      pid ->
+        case safe_get_world(pid) do
+          {:ok, world, _bounds} ->
+            save_world_scene(socket, world, name)
+
+          {:error, reason} ->
+            {:noreply, put_scene_message(socket, :error, "Could not read the world: #{reason}")}
+        end
+    end
+  end
+
+  def handle_event("load_scene", %{"name" => name}, socket) do
+    cond do
+      not is_binary(name) ->
+        {:noreply, put_scene_message(socket, :error, scene_error_message(:invalid_name))}
+
+      is_nil(socket.assigns.sim) ->
+        {:noreply,
+         put_scene_message(socket, :error, "Start the simulation before loading a scene.")}
+
+      true ->
+        load_world_scene(socket, socket.assigns.sim, name)
+    end
+  end
+
+  def handle_event("delete_scene", %{"name" => name}, socket) do
+    result = if is_binary(name), do: SceneStore.delete(name), else: {:error, :invalid_name}
+
+    socket = assign(socket, scenes: scene_names())
+
+    case result do
+      :ok ->
+        {:noreply, put_scene_message(socket, :info, "Deleted scene \"#{name}\".")}
+
+      {:error, reason} ->
+        {:noreply, put_scene_message(socket, :error, scene_error_message(reason, name))}
+    end
   end
 
   @impl true
@@ -445,6 +524,76 @@ defmodule ChronosWeb.SimLive do
                 </button>
               </div>
             </div>
+          </section>
+
+          <section class="panel scenes-panel" aria-label="Saved scenes">
+            <div class="panel-head compact">
+              <h2>Scenes</h2>
+              <span class="muted scene-count"><%= length(@scenes) %>/<%= @max_scenes %> scenes</span>
+            </div>
+
+            <span class={["scene-state", @scene_dirty && "is-dirty"]}>
+              <span :if={@scene_dirty} class="dirty-dot" aria-hidden="true"></span>
+              <%= if @scene_dirty, do: "Dirty — live world differs from the last snapshot", else: "Clean — matches the last saved/loaded snapshot" %>
+            </span>
+
+            <form id="scene-save" phx-submit="save_scene" class="scene-save-form">
+              <input
+                type="text"
+                id="scene-name"
+                name="name"
+                value={@scene_name_input}
+                phx-change="set_scene_name"
+                phx-debounce="200"
+                maxlength="64"
+                placeholder="scene-name"
+                aria-label="Scene name"
+                autocomplete="off"
+              />
+              <button class="button primary" type="submit">Save scene</button>
+            </form>
+
+            <p
+              :if={@scene_message}
+              class={["banner", @scene_message.kind == :error && "banner-error", @scene_message.kind == :info && "banner-info"]}
+              role={if @scene_message.kind == :error, do: "alert", else: "status"}
+            >
+              <%= @scene_message.text %>
+            </p>
+
+            <div class="control-group">
+              <span class="control-label">Load a scene (replaces the current world)</span>
+              <p :if={@scenes == []} class="muted empty-note">
+                No saved scenes yet. Save the current world to create one.
+              </p>
+              <ul :if={@scenes != []} class="scene-list">
+                <li :for={name <- @scenes} class="scene-row">
+                  <button
+                    class="button ghost scene-load"
+                    phx-click="load_scene"
+                    phx-value-name={name}
+                    title={"Load #{name} — replaces the current world"}
+                  >
+                    <%= name %>
+                  </button>
+                  <button
+                    class="button ghost small"
+                    phx-click="delete_scene"
+                    phx-value-name={name}
+                    aria-label={"Delete #{name}"}
+                    title={"Delete #{name}"}
+                  >
+                    Delete
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <p class="muted eviction-note">
+              Capped at <%= @max_scenes %> scenes; when full, the oldest scene (by
+              modification time) is evicted first. Scenes are ephemeral — they
+              vanish on redeploy.
+            </p>
           </section>
 
           <section class="panel edit-panel" aria-label="Scene editing">
@@ -703,7 +852,11 @@ defmodule ChronosWeb.SimLive do
              :ok <- SimServer.update_world(pid, updated) do
           case safe_next_frame(pid) do
             {:ok, frame} ->
-              {:noreply, socket |> put_frame(frame) |> push_event("sim_frame", frame)}
+              {:noreply,
+               socket
+               |> put_frame(frame)
+               |> push_event("sim_frame", frame)
+               |> refresh_scene_dirty(updated)}
 
             {:error, reason} ->
               {:noreply, assign(socket, error: "Simulation error: #{reason}")}
@@ -749,7 +902,8 @@ defmodule ChronosWeb.SimLive do
           {:noreply,
            socket
            |> put_frame(frame)
-           |> push_event("sim_frame", frame)}
+           |> push_event("sim_frame", frame)
+           |> refresh_scene_dirty(updated)}
 
         {:error, reason} ->
           {:noreply, assign(socket, error: "Simulation error: #{reason}")}
@@ -769,6 +923,124 @@ defmodule ChronosWeb.SimLive do
       {:error, "process unavailable"}
   end
 
+  # -- Scene save/load helpers (#36) ----------------------------------------
+
+  defp scene_names, do: Enum.map(SceneStore.list(), & &1["name"])
+
+  # Persists the current world under `name`. SceneStore.save overwrites a
+  # same-named scene (refreshing its mtime) and enforces every cap. Eviction is
+  # detected by diffing the scene-name set before/after (a different name
+  # disappeared): overwriting at the cap is not misreported as an eviction, and
+  # a total-byte-cap eviction below the count cap is still caught. On success
+  # the dirty baseline becomes the saved world.
+  defp save_world_scene(socket, world, name) do
+    names_before = scene_names()
+
+    case SceneStore.save(World.to_scene(world, name)) do
+      :ok ->
+        names_after = scene_names()
+        evicted? = Enum.any?(names_before, fn n -> n != name and n not in names_after end)
+
+        message =
+          "Saved scene \"#{name}\"." <>
+            if evicted? do
+              " The oldest scene was evicted to make room (capped store)."
+            else
+              ""
+            end
+
+        {:noreply,
+         socket
+         |> set_scene_baseline(world)
+         |> assign(scenes: scene_names(), scene_name_input: "")
+         |> put_scene_message(:info, message)}
+
+      {:error, reason} ->
+        {:noreply, put_scene_message(socket, :error, scene_error_message(reason))}
+    end
+  end
+
+  # Loads a stored scene and replaces the session world through
+  # SimServer.update_world/2 (bounds recompute, custom stepping). The loaded
+  # world becomes the dirty baseline and the undo history clears (#37 hook).
+  defp load_world_scene(socket, pid, name) do
+    with {:ok, scene} <- SceneStore.get(name),
+         {:ok, world} <- SceneStore.scene_to_world(scene),
+         :ok <- SimServer.update_world(pid, world) do
+      case safe_next_frame(pid) do
+        {:ok, frame} ->
+          {:noreply,
+           socket
+           |> put_frame(frame)
+           |> push_event("sim_frame", frame)
+           |> set_scene_baseline(world)
+           |> put_scene_message(
+             :info,
+             "Loaded scene \"#{name}\" — it replaced the current world."
+           )}
+
+        {:error, reason} ->
+          {:noreply, assign(socket, error: "Simulation error: #{reason}")}
+      end
+    else
+      {:error, reason} ->
+        # The list may have changed under us (delete/eviction by another
+        # session); refresh it alongside the error.
+        {:noreply,
+         socket
+         |> assign(scenes: scene_names())
+         |> put_scene_message(:error, scene_error_message(reason, name))}
+    end
+  end
+
+  # Sets the dirty-state baseline to `world` (last save/load/reset), clears
+  # the dirty dot, and clears the undo history. `undo_stack` is the slice #37
+  # hook: #36 establishes and clears it; #37 populates the ~50-entry stack.
+  defp set_scene_baseline(socket, world) do
+    assign(socket,
+      scene_baseline: SceneSnapshot.from_world(world),
+      scene_dirty: false,
+      undo_stack: []
+    )
+  end
+
+  # Recomputes the dirty dot after an edit: normalized geometry (positions,
+  # walls, material, attenuation, z — never tick/velocity noise) against the
+  # baseline. Ticks do NOT recompute it; simulation motion is not an edit.
+  defp refresh_scene_dirty(socket, world) do
+    dirty? = SceneSnapshot.from_world(world) != socket.assigns.scene_baseline
+    assign(socket, scene_dirty: dirty?)
+  end
+
+  defp put_scene_message(socket, kind, text) do
+    assign(socket, scene_message: %{kind: kind, text: text})
+  end
+
+  # Uniform friendly messages for every SceneStore failure mode.
+  defp scene_error_message(reason, name \\ nil)
+
+  defp scene_error_message(:invalid_name, _name) do
+    "Invalid scene name: use 1–64 lowercase letters, digits, \"-\" or \"_\"."
+  end
+
+  defp scene_error_message(:invalid_scene, name) when is_binary(name) do
+    "Scene \"#{name}\" is invalid or too large to load."
+  end
+
+  defp scene_error_message(:invalid_scene, _name) do
+    "This world is too large or invalid to save (64 KiB per scene, 1024 nodes/walls)."
+  end
+
+  defp scene_error_message(:not_found, name) when is_binary(name) do
+    "Scene \"#{name}\" was not found — it may have been deleted or evicted."
+  end
+
+  defp scene_error_message(:not_found, _name), do: "Scene not found."
+
+  defp scene_error_message(reason, _name) do
+    "Scene storage error: #{inspect(reason)}."
+  end
+
   defp reset_simulation(socket) do
     case socket.assigns.sim do
       nil ->
@@ -780,15 +1052,24 @@ defmodule ChronosWeb.SimLive do
             socket.assigns.tx_power
           )
         )
+        |> set_scene_baseline(Scenario.world(socket.assigns.scenario))
 
       pid ->
         :ok = SimServer.reset(pid)
 
         case safe_next_frame(pid) do
           {:ok, frame} ->
-            socket
-            |> put_frame(frame)
-            |> push_event("sim_frame", frame)
+            socket =
+              socket
+              |> put_frame(frame)
+              |> push_event("sim_frame", frame)
+
+            # Reset rewinds to the session's pre-edit world; the dirty
+            # baseline follows it and the undo history clears (#37 hook).
+            case safe_get_world(pid) do
+              {:ok, world, _bounds} -> set_scene_baseline(socket, world)
+              {:error, _reason} -> socket
+            end
 
           {:error, reason} ->
             assign(socket, error: "Simulation error: #{reason}")
