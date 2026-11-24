@@ -10,10 +10,11 @@ defmodule Chronos.Config do
   @doc """
   Decides whether production HTTPS redirects and HSTS are enabled.
 
-  Documented truthy/falsy `FORCE_SSL` values win. An unrecognized value warns
-  and falls back to `PHX_SCHEME`, or to the secure default (HTTPS) when the
-  scheme is unset or invalid — a typo must never silently disable TLS. When
-  `FORCE_SSL` is unset, `PHX_SCHEME` decides, defaulting to HTTPS.
+  Recognized truthy/falsy `FORCE_SSL` values win. An unrecognized value warns
+  and falls back to `PHX_SCHEME` (which may disable redirects), or to HTTPS
+  when the scheme is unset or invalid — a typo must never silently disable
+  TLS by itself. When `FORCE_SSL` is unset, `PHX_SCHEME` decides, defaulting
+  to HTTPS.
   """
   @spec force_ssl?(String.t() | nil, String.t() | nil) :: boolean()
   def force_ssl?(force_ssl_env, scheme_env) do
@@ -28,12 +29,15 @@ defmodule Chronos.Config do
         scheme_https?(scheme_env, true)
 
       true ->
+        fallback = scheme_https?(scheme_env, true)
+
         IO.warn(
           "Unrecognized FORCE_SSL=#{inspect(force_ssl_env)}; " <>
-            "falling back to PHX_SCHEME or the secure default (HTTPS redirects enabled)"
+            "falling back to PHX_SCHEME or the secure default " <>
+            "(HTTPS redirects #{if fallback, do: "enabled", else: "disabled"})"
         )
 
-        scheme_https?(scheme_env, true)
+        fallback
     end
   end
 

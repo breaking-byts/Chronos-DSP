@@ -22,6 +22,22 @@ defmodule Chronos.ConfigTest do
     assert Config.force_ssl?(nil, "garbage")
   end
 
+  test "warning reflects the actual redirect outcome" do
+    warning_http =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        refute Config.force_ssl?("typo", "http")
+      end)
+
+    assert warning_http =~ "HTTPS redirects disabled"
+
+    warning_https =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert Config.force_ssl?("typo", "https")
+      end)
+
+    assert warning_https =~ "HTTPS redirects enabled"
+  end
+
   test "an unrecognized FORCE_SSL warns and fails closed" do
     warning =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
