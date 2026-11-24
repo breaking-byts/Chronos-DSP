@@ -190,8 +190,9 @@ if config_env() == :prod do
 
   # Public port used for URL generation. Behind a TLS-terminating proxy this is
   # 443; override with PHX_URL_PORT when the app is exposed on another port.
-  url_port =
-    parse_port.("PHX_URL_PORT", if(force_ssl?, do: 443, else: port))
+  # PHX_URL_PORT is optional: an invalid value warns and uses the derived
+  # default rather than aborting boot. PORT above remains mandatory.
+  url_port = Chronos.Config.UrlPort.normalize(get_env.("PHX_URL_PORT"), force_ssl?, port)
 
   # PHX_SERVER defaults to true in production: `bin/chronos start` is expected
   # to serve HTTP. Set PHX_SERVER=false for release tasks (migrations, etc.).
