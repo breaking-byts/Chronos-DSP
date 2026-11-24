@@ -219,7 +219,9 @@ defmodule Chronos.SceneEdit do
   # edge, and pushing after clamping can leave the viewport. Try the clamped
   # point first, then a bounded fan of points on the minimum-radius circle
   # around each neighbour (clamped again), and reject the commit when no
-  # candidate satisfies both constraints.
+  # candidate satisfies both constraints. Rejection means no sampled clamped
+  # candidate satisfies both constraints — not proof that no valid placement
+  # exists; the LiveView caller logs a warning and no-ops.
   defp place_vertex(point, vertices, index, bounds) do
     neighbours = neighbour_vertices(vertices, index)
 
