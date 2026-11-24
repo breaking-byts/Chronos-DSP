@@ -41,10 +41,6 @@ if config_env() == :prod do
     end
   end
 
-  truthy? = fn value ->
-    is_binary(value) and String.downcase(String.trim(value)) in ~w(1 true t yes y on)
-  end
-
   falsy? = fn value ->
     is_binary(value) and String.downcase(String.trim(value)) in ~w(0 false f no n off)
   end
@@ -173,13 +169,9 @@ if config_env() == :prod do
 
   # FORCE_SSL wins when present; otherwise PHX_SCHEME decides. Production
   # defaults to HTTPS so a misconfigured deployment fails closed (redirects)
-  # rather than serving plaintext.
-  force_ssl? =
-    cond do
-      force_ssl_env != nil -> truthy?.(force_ssl_env)
-      scheme_env != nil -> normalize_scheme.(scheme_env, "https") == "https"
-      true -> true
-    end
+  # rather than serving plaintext. An unrecognized FORCE_SSL value is treated
+  # as absent (with a warning), never as an explicit opt-out.
+  force_ssl? = Chronos.Config.force_ssl?(force_ssl_env, scheme_env)
 
   scheme =
     if force_ssl? do
