@@ -74,6 +74,50 @@ defmodule Chronos.DSPTest do
     end
   end
 
+  test "artifact magic detection covers all documented native binary headers" do
+    accepted = [
+      <<0x7F, "ELF">>,
+      <<0xCE, 0xFA, 0xED, 0xFE>>,
+      <<0xCF, 0xFA, 0xED, 0xFE>>,
+      <<0xFE, 0xED, 0xFA, 0xCE>>,
+      <<0xFE, 0xED, 0xFA, 0xCF>>,
+      <<0xCA, 0xFE, 0xBA, 0xBE>>,
+      <<0xBE, 0xBA, 0xFE, 0xCA>>,
+      <<"MZ", 0x90, 0x00>>
+    ]
+
+    rejected = ["not-a-real-nif", "", <<0x7F, "EL">>]
+    all = accepted ++ rejected
+
+    paths =
+      Enum.map(all, fn bytes ->
+        path =
+          Path.join(
+            System.tmp_dir!(),
+            "chronos_dsp_magic_#{System.unique_integer([:positive])}.so"
+          )
+
+        File.write!(path, bytes)
+        path
+      end)
+
+    try do
+      accepted
+      |> Enum.zip(paths)
+      |> Enum.each(fn {magic, path} ->
+        assert DSP.artifact_magic?(path), "expected #{Base.encode16(magic)} to be accepted"
+      end)
+
+      rejected
+      |> Enum.zip(Enum.drop(paths, length(accepted)))
+      |> Enum.each(fn {bytes, path} ->
+        refute DSP.artifact_magic?(path), "expected #{inspect(bytes)} to be rejected"
+      end)
+    after
+      Enum.each(paths, &File.rm/1)
+    end
+  end
+
   defp with_dummy_nif_artifact(fun) do
     previous = Application.get_env(:chronos, :nif_artifact_path)
 

@@ -8,4 +8,4 @@ name = "chronos_dsp"
 crate-type = ["cdylib"]
 
 [dependencies]
-rustler = "=0.37.0"
+rustler = { version = "=0.37.0", features = ["big_integer"] }

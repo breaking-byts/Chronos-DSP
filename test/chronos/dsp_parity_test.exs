@@ -72,6 +72,23 @@ defmodule Chronos.DSPParityTest do
     end
   end
 
+  test "seeds above u64 mask identically in the reference and the NIF" do
+    {tx_bin, paths_bin} = fixture()
+    # 2^64 + 7 masks to 7, exactly as the reference's u64 mask does.
+    large_seed = 18_446_744_073_709_551_623
+    expected = Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7)
+
+    assert expected ==
+             Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, large_seed)
+
+    if native_available?() do
+      assert_samples_close(
+        Native.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, large_seed),
+        expected
+      )
+    end
+  end
+
   test "non-finite path fields are rejected by both backends" do
     tx_bin = Packing.pack_complex([{1.0, 0.0}, {2.0, 0.0}])
     # NaN delay and an infinite gain: well-sized payloads that the byte

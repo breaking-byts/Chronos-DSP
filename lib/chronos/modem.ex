@@ -18,15 +18,24 @@ defmodule Chronos.Modem do
 
   @spec ber(list(0 | 1), list(0 | 1)) :: float()
   def ber(a, b) do
-    total = min(length(a), length(b))
+    a_len = length(a)
+    b_len = length(b)
+    total = max(a_len, b_len)
 
-    errors =
-      a
-      |> Enum.take(total)
-      |> Enum.zip(Enum.take(b, total))
-      |> Enum.count(fn {x, y} -> x != y end)
+    if total == 0 do
+      0.0
+    else
+      # Bits present on one side but missing on the other are errors: a
+      # shorter received stream is a partial link failure, not a perfect
+      # link measured over only the bits that happened to arrive.
+      compared =
+        a
+        |> Enum.zip(b)
+        |> Enum.count(fn {x, y} -> x != y end)
 
-    if total == 0, do: 0.0, else: errors / total
+      missing = abs(a_len - b_len)
+      (compared + missing) / total
+    end
   end
 
   defp map_bits(0, 0), do: norm({1.0, 1.0})

@@ -204,7 +204,10 @@ defmodule Chronos.Geometry do
   end
 
   defp polygon_edges_2d([first | rest]) do
-    Enum.zip(rest, tl(rest) ++ [first])
+    # Include the closing edge (vn -> v0) as well as the first edge
+    # (v0 -> v1). Zipping `rest` with itself drops the first edge, which
+    # makes boundary classification depend on which vertex a wall starts at.
+    Enum.zip([first | rest], rest ++ [first])
   end
 
   defp point_on_segment_2d?({px, py}, {x1, y1}, {x2, y2}) do
