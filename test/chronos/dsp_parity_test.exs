@@ -78,7 +78,8 @@ defmodule Chronos.DSPParityTest do
     large_seed = 18_446_744_073_709_551_623
     expected = Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, 7)
 
-    assert expected == Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, large_seed)
+    assert expected ==
+             Reference.render_rx_block(tx_bin, paths_bin, @sample_rate, 0.01, large_seed)
 
     if native_available?() do
       assert_samples_close(
