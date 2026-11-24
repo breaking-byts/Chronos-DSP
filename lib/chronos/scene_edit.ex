@@ -94,12 +94,17 @@ defmodule Chronos.SceneEdit do
          {:ok, x, y} <- parse_xy(pos) do
       {x, y} = maybe_snap({x, y}, opts)
       {x, y} = clamp_point({x, y}, bounds)
-      {x, y} = guard_min_edge({x, y}, wall.vertices, index)
 
-      vertices =
-        List.replace_at(wall.vertices, index, {x, y, elem(Enum.at(wall.vertices, index), 2)})
+      case place_vertex({x, y}, wall.vertices, index, bounds) do
+        {:ok, {x, y}} ->
+          vertices =
+            List.replace_at(wall.vertices, index, {x, y, elem(Enum.at(wall.vertices, index), 2)})
 
-      {:ok, put_wall(world, %{wall | vertices: vertices})}
+          {:ok, put_wall(world, %{wall | vertices: vertices})}
+
+        :error ->
+          {:error, :invalid_payload}
+      end
     end
   end
 
@@ -208,33 +213,65 @@ defmodule Chronos.SceneEdit do
     if lo > hi, do: 0.0, else: clamp(delta, lo, hi)
   end
 
-  # Keep the moved vertex at least @min_wall_edge away from its cyclic
-  # neighbours by pushing it out along the direction from each neighbour.
-  defp guard_min_edge({x, y}, vertices, index) do
+  # A dragged vertex must stay inside bounds + margin AND at least
+  # @min_wall_edge from each cyclic neighbour. A single pass of radial pushes
+  # cannot enforce both: pushing away from one neighbour can shorten the other
+  # edge, and pushing after clamping can leave the viewport. Try the clamped
+  # point first, then a bounded fan of points on the minimum-radius circle
+  # around each neighbour (clamped again), and reject the commit when no
+  # candidate satisfies both constraints.
+  defp place_vertex(point, vertices, index, bounds) do
+    neighbours = neighbour_vertices(vertices, index)
+
+    if valid_placement?(point, neighbours) do
+      {:ok, point}
+    else
+      {px, py} = point
+
+      candidates =
+        neighbours
+        |> Enum.flat_map(fn {ax, ay, _} ->
+          base = :math.atan2(py - ay, px - ax)
+
+          for step <- -8..8 do
+            angle = base + step * :math.pi() / 8.0
+
+            clamp_point(
+              {ax + :math.cos(angle) * @min_wall_edge, ay + :math.sin(angle) * @min_wall_edge},
+              bounds
+            )
+          end
+        end)
+        |> Enum.uniq()
+        |> Enum.sort_by(fn candidate -> squared_distance(candidate, point) end)
+
+      case Enum.find(candidates, &valid_placement?(&1, neighbours)) do
+        nil -> :error
+        placed -> {:ok, placed}
+      end
+    end
+  end
+
+  defp neighbour_vertices(vertices, index) do
     count = length(vertices)
 
     if count < 2 do
-      {x, y}
+      []
     else
-      neighbours = [rem(index - 1 + count, count), rem(index + 1, count)]
-
-      Enum.reduce(neighbours, {x, y}, fn neighbour, {px, py} ->
-        {ax, ay, _} = Enum.at(vertices, neighbour)
-        dx = px - ax
-        dy = py - ay
-        distance = :math.sqrt(dx * dx + dy * dy)
-
-        if distance < @min_wall_edge do
-          {dx, dy, distance} =
-            if distance < 1.0e-9, do: {1.0, 0.0, 1.0}, else: {dx, dy, distance}
-
-          {ax + dx / distance * @min_wall_edge, ay + dy / distance * @min_wall_edge}
-        else
-          {px, py}
-        end
-      end)
+      [rem(index - 1 + count, count), rem(index + 1, count)]
+      |> Enum.map(&Enum.at(vertices, &1))
     end
   end
+
+  defp valid_placement?({x, y}, neighbours) do
+    Enum.all?(neighbours, fn {ax, ay, _} ->
+      dx = x - ax
+      dy = y - ay
+      dx * dx + dy * dy >= @min_wall_edge * @min_wall_edge - 1.0e-12
+    end)
+  end
+
+  defp squared_distance({x1, y1}, {x2, y2}), do: (x1 - x2) ** 2 + (y1 - y2) ** 2
 
   defp clamp(value, lower, upper), do: value |> max(lower) |> min(upper)
 end

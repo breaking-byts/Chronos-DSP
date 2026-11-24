@@ -176,6 +176,41 @@ defmodule Chronos.SceneEditTest do
       assert y <= 3.0 + @margin
     end
 
+    test "guard keeps both adjacent edges above the minimum", %{world: _world} do
+      wall = %World.Wall{
+        id: :w1,
+        vertices: [{0.0, 0.0, 0.0}, {0.05, 0.08, 0.0}, {0.05, -0.08, 0.0}],
+        normal: {0.0, 0.0, 1.0}
+      }
+
+      world = World.add_wall(World.new(), wall)
+      payload = %{"kind" => "wall_vertex", "id" => "w1", "index" => 0, "pos" => [0.0, 0.0]}
+      assert {:ok, updated} = SceneEdit.apply(world, @bounds, payload)
+
+      [{x, y, _}, a, b] = World.wall(updated, :w1).vertices
+
+      for neighbour <- [a, b] do
+        distance = :math.sqrt((x - elem(neighbour, 0)) ** 2 + (y - elem(neighbour, 1)) ** 2)
+        assert distance >= @min_edge - 1.0e-9
+      end
+    end
+
+    test "guard never pushes an endpoint outside bounds plus margin", %{world: _world} do
+      wall = %World.Wall{
+        id: :w1,
+        vertices: [{3.20, 3.20, 0.0}, {0.0, 0.0, 0.0}, {3.21, 3.21, 0.0}],
+        normal: {0.0, 0.0, 1.0}
+      }
+
+      world = World.add_wall(World.new(), wall)
+      payload = %{"kind" => "wall_vertex", "id" => "w1", "index" => 2, "pos" => [99.0, 99.0]}
+      assert {:ok, updated} = SceneEdit.apply(world, @bounds, payload)
+      {x, y, _} = Enum.at(World.wall(updated, :w1).vertices, 2)
+
+      assert x <= 3.0 + @margin and y <= 3.0 + @margin
+      assert x >= -3.0 - @margin and y >= -3.0 - @margin
+    end
+
     test "rejects out-of-range indices and unknown walls", %{world: world} do
       for index <- [-1, 4, "0", 1.5] do
         assert {:error, :invalid_payload} =
