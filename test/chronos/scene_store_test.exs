@@ -115,6 +115,33 @@ defmodule Chronos.SceneStoreTest do
     assert {:error, :not_found} = SceneStore.delete("lab_scene")
   end
 
+  test "delete is serialized with writes under the directory lock", %{dir: dir} do
+    assert :ok = SceneStore.save(valid_scene())
+    parent = self()
+    lock_id = {{SceneStore, Path.expand(dir)}, self()}
+
+    task =
+      Task.async(fn ->
+        receive do: (:go -> :ok)
+        send(parent, :delete_called)
+        result = SceneStore.delete("lab_scene")
+        send(parent, {:delete_done, result})
+        result
+      end)
+
+    :global.trans(lock_id, fn ->
+      send(task.pid, :go)
+      assert_receive :delete_called
+      # With an unlocked delete this arrives immediately, inside the
+      # critical section that create/save are forced to wait for.
+      refute_receive {:delete_done, _}, 200
+    end)
+
+    assert_receive {:delete_done, :ok}, 1000
+    assert Task.await(task, 1000) == :ok
+    refute File.exists?(Path.join(dir, "lab_scene.json"))
+  end
+
   test "list sorts scenes by name" do
     assert :ok = SceneStore.save(valid_scene("zebra"))
     assert :ok = SceneStore.save(valid_scene("alpha"))
