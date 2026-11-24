@@ -113,9 +113,14 @@ defmodule Chronos.DSP do
   defp artifact_magic?(path) do
     case File.open(path, [:read, :binary], &IO.binread(&1, 4)) do
       {:ok, <<0x7F, "ELF">>} -> true
+      # Mach-O 32-bit LE, 64-bit LE, 32-bit BE, 64-bit BE.
+      {:ok, <<0xCE, 0xFA, 0xED, 0xFE>>} -> true
       {:ok, <<0xCF, 0xFA, 0xED, 0xFE>>} -> true
       {:ok, <<0xFE, 0xED, 0xFA, 0xCE>>} -> true
       {:ok, <<0xFE, 0xED, 0xFA, 0xCF>>} -> true
+      # Universal (fat) binaries, both byte orders.
+      {:ok, <<0xCA, 0xFE, 0xBA, 0xBE>>} -> true
+      {:ok, <<0xBE, 0xBA, 0xFE, 0xCA>>} -> true
       {:ok, <<"MZ", _::binary>>} -> true
       _ -> false
     end
