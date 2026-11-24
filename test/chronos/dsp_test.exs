@@ -74,41 +74,49 @@ defmodule Chronos.DSPTest do
     end
   end
 
-  test "nif artifact detection accepts 32-bit Mach-O and universal binaries" do
-    previous_path = Application.get_env(:chronos, :nif_artifact_path)
-    previous_override = Application.get_env(:chronos, :nif_loaded_override)
-    Application.delete_env(:chronos, :nif_loaded_override)
-
-    magics = [
+  test "artifact magic detection covers all documented native binary headers" do
+    accepted = [
+      <<0x7F, "ELF">>,
       <<0xCE, 0xFA, 0xED, 0xFE>>,
       <<0xCF, 0xFA, 0xED, 0xFE>>,
       <<0xFE, 0xED, 0xFA, 0xCE>>,
       <<0xFE, 0xED, 0xFA, 0xCF>>,
       <<0xCA, 0xFE, 0xBA, 0xBE>>,
-      <<0xBE, 0xBA, 0xFE, 0xCA>>
+      <<0xBE, 0xBA, 0xFE, 0xCA>>,
+      <<"MZ", 0x90, 0x00>>
     ]
 
-    try do
-      Enum.each(magics, fn magic ->
+    rejected = ["not-a-real-nif", "", <<0x7F, "EL">>]
+    all = accepted ++ rejected
+
+    paths =
+      Enum.map(all, fn bytes ->
         path =
           Path.join(
             System.tmp_dir!(),
             "chronos_dsp_magic_#{System.unique_integer([:positive])}.so"
           )
 
-        File.write!(path, magic)
-        Application.put_env(:chronos, :nif_artifact_path, path)
-        assert DSP.nif_loaded?(), "expected #{Base.encode16(magic)} to be accepted"
-        File.rm!(path)
+        File.write!(path, bytes)
+        path
+      end)
+
+    try do
+      accepted
+      |> Enum.zip(paths)
+      |> Enum.each(fn {magic, path} ->
+        assert DSP.artifact_magic?(path), "expected #{Base.encode16(magic)} to be accepted"
+      end)
+
+      rejected
+      |> Enum.zip(Enum.drop(paths, length(accepted)))
+      |> Enum.each(fn {bytes, path} ->
+        refute DSP.artifact_magic?(path), "expected #{inspect(bytes)} to be rejected"
       end)
     after
-      restore_env(:nif_artifact_path, previous_path)
-      restore_env(:nif_loaded_override, previous_override)
+      Enum.each(paths, &File.rm/1)
     end
   end
-
-  defp restore_env(key, nil), do: Application.delete_env(:chronos, key)
-  defp restore_env(key, value), do: Application.put_env(:chronos, key, value)
 
   defp with_dummy_nif_artifact(fun) do
     previous = Application.get_env(:chronos, :nif_artifact_path)

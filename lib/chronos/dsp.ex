@@ -110,7 +110,11 @@ defmodule Chronos.DSP do
     end
   end
 
-  defp artifact_magic?(path) do
+  # Internal seam: a pure predicate used by the artifact availability check.
+  # Exposed only so the magic table can be tested without a loadable NIF.
+  @doc false
+  @spec artifact_magic?(String.t()) :: boolean()
+  def artifact_magic?(path) do
     case File.open(path, [:read, :binary], &IO.binread(&1, 4)) do
       {:ok, <<0x7F, "ELF">>} -> true
       # Mach-O 32-bit LE, 64-bit LE, 32-bit BE, 64-bit BE.
