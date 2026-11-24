@@ -246,7 +246,7 @@ defmodule ChronosWeb.SimLive do
     end
   end
 
-  def handle_event("speed", %{"ms" => ms}, socket) do
+  def handle_event("speed", %{"ms" => ms}, socket) when is_binary(ms) do
     case Integer.parse(ms) do
       {value, ""} when value in @speed_values ->
         if socket.assigns.sim, do: SimServer.set_tick_ms(socket.assigns.sim, value)
@@ -257,7 +257,7 @@ defmodule ChronosWeb.SimLive do
     end
   end
 
-  def handle_event("noise", %{"value" => value}, socket) do
+  def handle_event("noise", %{"value" => value}, socket) when is_binary(value) do
     case Float.parse(value) do
       {noise, ""} when noise in @noise_values ->
         if socket.assigns.sim, do: SimServer.set_noise_power(socket.assigns.sim, noise)
@@ -308,7 +308,7 @@ defmodule ChronosWeb.SimLive do
 
   # -- Editing panel (#35): every value is re-validated server-side ---------
 
-  def handle_event("set_tx_power", %{"value" => value}, socket) do
+  def handle_event("set_tx_power", %{"value" => value}, socket) when is_binary(value) do
     with {tx_power, ""} <- Integer.parse(value),
          {:ok, tx_power} <- ApiParams.validate_tx_power(tx_power) do
       if socket.assigns.sim, do: SimServer.set_tx_power(socket.assigns.sim, tx_power)
@@ -323,7 +323,8 @@ defmodule ChronosWeb.SimLive do
     end
   end
 
-  def handle_event("set_wall_attenuation", %{"id" => id, "value" => value}, socket) do
+  def handle_event("set_wall_attenuation", %{"id" => id, "value" => value}, socket)
+      when is_binary(value) do
     with {db, ""} <- Float.parse(value),
          {:ok, db} <- ApiParams.validate_attenuation(db) do
       apply_panel_edit(socket, fn world, _bounds ->
@@ -347,7 +348,7 @@ defmodule ChronosWeb.SimLive do
     end)
   end
 
-  def handle_event("set_node_z", %{"id" => id, "value" => value}, socket) do
+  def handle_event("set_node_z", %{"id" => id, "value" => value}, socket) when is_binary(value) do
     with {z, ""} <- Float.parse(value),
          {:ok, z} <- ApiParams.validate_z(z) do
       apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_node_z(world, id, z) end)
@@ -356,7 +357,7 @@ defmodule ChronosWeb.SimLive do
     end
   end
 
-  def handle_event("set_wall_z", %{"id" => id, "value" => value}, socket) do
+  def handle_event("set_wall_z", %{"id" => id, "value" => value}, socket) when is_binary(value) do
     with {z, ""} <- Float.parse(value),
          {:ok, z} <- ApiParams.validate_z(z) do
       apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_wall_z(world, id, z) end)
@@ -446,6 +447,14 @@ defmodule ChronosWeb.SimLive do
       {:error, reason} ->
         {:noreply, put_scene_message(socket, :error, scene_error_message(reason, name))}
     end
+  end
+
+  # Last clause: malformed or unknown client events must not kill the session.
+  # Log the event name only — never echo untrusted params — so template or
+  # protocol mistakes remain visible instead of being silently swallowed.
+  def handle_event(event, _params, socket) do
+    Logger.warning("Ignoring unsupported or malformed LiveView event: #{inspect(event)}")
+    {:noreply, socket}
   end
 
   @impl true
