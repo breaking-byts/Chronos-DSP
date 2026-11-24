@@ -138,6 +138,18 @@ defmodule Chronos.SceneEditTest do
                  "vertices" => [[0.0, 0.0]]
                })
     end
+
+    test "rejects a whole-wall drag on a zero-vertex wall instead of raising" do
+      wall = %World.Wall{id: :w1, vertices: [], normal: {0.0, 0.0, 1.0}}
+      world = World.add_wall(World.new(), wall)
+
+      assert {:error, :invalid_payload} =
+               SceneEdit.apply(world, @bounds, %{
+                 "kind" => "wall",
+                 "id" => "w1",
+                 "vertices" => []
+               })
+    end
   end
 
   describe "wall endpoint commits" do

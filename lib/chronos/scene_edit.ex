@@ -151,7 +151,10 @@ defmodule Chronos.SceneEdit do
   defp validate_index(_index, _count), do: {:error, :invalid_payload}
 
   # A whole-wall commit must move every vertex by the same XY delta; anything
-  # else is a malformed (or tampered) payload.
+  # else is a malformed (or tampered) payload. A zero-vertex wall has no delta
+  # to compute and must be rejected, not crash the LiveView event.
+  defp translation_delta([], []), do: {:error, :invalid_payload}
+
   defp translation_delta([old | _] = old_vertices, [new | _] = new_vertices) do
     {ox, oy, _} = old
     {nx, ny} = new
@@ -167,6 +170,8 @@ defmodule Chronos.SceneEdit do
 
     if consistent?, do: {:ok, dx, dy}, else: {:error, :invalid_payload}
   end
+
+  defp translation_delta(_old_vertices, _new_vertices), do: {:error, :invalid_payload}
 
   defp maybe_snap({x, y}, opts) do
     if Keyword.get(opts, :snap, false) do
