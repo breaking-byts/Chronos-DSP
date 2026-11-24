@@ -21,4 +21,15 @@ defmodule Chronos.ModemTest do
   test "ber counts differing bits" do
     assert Modem.ber([0, 0, 1, 1], [0, 1, 1, 0]) == 0.5
   end
+
+  test "ber counts missing received bits as errors" do
+    assert Modem.ber([0, 0, 0, 0], [1, 1]) == 1.0
+    assert Modem.ber([1, 0], [1, 0, 0, 0]) == 0.5
+  end
+
+  test "ber reports total loss when the receiver produced no bits" do
+    assert Modem.ber([0, 1, 1, 0], []) == 1.0
+    assert Modem.ber([], [1, 0]) == 1.0
+    assert Modem.ber([], []) == 0.0
+  end
 end
