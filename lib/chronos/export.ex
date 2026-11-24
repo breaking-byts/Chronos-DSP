@@ -70,12 +70,18 @@ defmodule Chronos.Export do
   Escapes one value for use as a CSV field.
 
   Strings only need quoting when they contain a comma, quote, or line break.
-  Embedded quotes are doubled as required by RFC 4180.
+  Embedded quotes are doubled as required by RFC 4180. Leading spreadsheet
+  formula characters (`=`, `+`, `-`, `@`, tab, CR) are prefixed with an
+  apostrophe so a spreadsheet cannot evaluate the field as a formula.
+
+  Numeric fields are formatted separately and keep their sign.
   """
   @spec escape_field(term()) :: String.t()
   def escape_field(nil), do: ""
 
   def escape_field(value) when is_binary(value) do
+    value = neutralize_formula(value)
+
     if String.contains?(value, [",", "\"", "\n", "\r"]) do
       "\"" <> String.replace(value, "\"", "\"\"") <> "\""
     else
@@ -92,6 +98,12 @@ defmodule Chronos.Export do
   end
 
   def escape_field(value), do: inspect(value)
+
+  defp neutralize_formula(<<first, _::binary>> = value)
+       when first in [?=, ?+, ?-, ?@, ?\t, ?\r],
+       do: "'" <> value
+
+  defp neutralize_formula(value), do: value
 
   defp metric_value(metric, key, default) do
     case Map.get(metric, key, default) do

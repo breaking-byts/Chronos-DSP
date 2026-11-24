@@ -51,6 +51,25 @@ defmodule Chronos.ExportTest do
     assert Export.samples_csv([]) == "index,re,im\n"
   end
 
+  test "escape_field neutralizes spreadsheet formula prefixes" do
+    for prefix <- ["=", "+", "-", "@"] do
+      assert Export.escape_field(prefix <> "1+1") == "'" <> prefix <> "1+1"
+    end
+
+    assert Export.escape_field("\tcmd") == "'\tcmd"
+    # CR is also an RFC 4180 quoting trigger, so the neutralized value is quoted.
+    assert Export.escape_field("\rcmd") == "\"'\rcmd\""
+  end
+
+  test "metrics CSV does not emit a formula in a string field" do
+    csv = Export.metrics_csv([%{rx_id: "=1+1"}])
+    refute csv =~ ",=1+1,"
+    assert csv =~ ",'=1+1,"
+
+    # Numeric fields use format_number/2 and must keep their negative sign.
+    assert Export.metrics_csv([%{received_power: -12.5}]) =~ "-12.500000"
+  end
+
   test "escape_field quotes only fields that need it" do
     assert Export.escape_field("plain") == "plain"
     assert Export.escape_field("one,two") == ~s("one,two")
