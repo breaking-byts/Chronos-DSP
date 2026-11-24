@@ -278,6 +278,7 @@ defmodule ChronosWeb.SimLive do
             socket
             |> assign(scenario: id, custom_world: false)
             |> put_frame(frame)
+            |> push_event("sim_frame", frame)
             |> set_scene_baseline(Scenario.world(id))
 
           pid ->
@@ -1244,14 +1245,16 @@ defmodule ChronosWeb.SimLive do
   defp reset_simulation(socket) do
     case socket.assigns.sim do
       nil ->
-        socket
-        |> put_frame(
+        frame =
           build_frame(
             socket.assigns.scenario,
             socket.assigns.noise_power,
             socket.assigns.tx_power
           )
-        )
+
+        socket
+        |> put_frame(frame)
+        |> push_event("sim_frame", frame)
         |> set_scene_baseline(Scenario.world(socket.assigns.scenario))
         |> assign(custom_world: false)
 
