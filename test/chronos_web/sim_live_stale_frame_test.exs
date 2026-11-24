@@ -11,14 +11,14 @@ defmodule ChronosWeb.SimLiveStaleFrameTest do
     assert is_pid(pid)
     :ok = SimSupervisor.stop_sim(pid)
     wait_for_sim_nil(view)
-    drain_frames()
+    drain_frames(view)
 
     render_click(view, "scenario", %{"id" => "open_field"})
 
     assert_push_event(view, "sim_frame", %{tick: 0, walls: walls}, 500)
     assert walls == []
 
-    drain_frames()
+    drain_frames(view)
     render_click(view, "reset")
     assert_push_event(view, "sim_frame", %{tick: 0}, 500)
   end
@@ -35,9 +35,12 @@ defmodule ChronosWeb.SimLiveStaleFrameTest do
     end
   end
 
-  defp drain_frames do
+  # Pushed events arrive through the LiveView client proxy, keyed by its ref.
+  defp drain_frames(view) do
+    %{proxy: {ref, _topic, _pid}} = view
+
     receive do
-      {:push_event, "sim_frame", _payload} -> drain_frames()
+      {^ref, {:push_event, "sim_frame", _payload}} -> drain_frames(view)
     after
       20 -> :ok
     end
