@@ -104,4 +104,17 @@ defmodule Chronos.WorldTest do
     # An ignored wall never blocks.
     refute World.segment_blocked_by?({-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, [wall], [:w1])
   end
+
+  test "grazing an edge is independent of wall vertex order" do
+    # Same physical wall and same grazing leg as above, but the grazing edge
+    # is now the FIRST vertex pair. Boundary classification must not depend
+    # on which vertex a wall polygon starts at.
+    rotated = %World.Wall{
+      id: :w2,
+      vertices: [{0.0, -2.0, 2.0}, {0.0, -2.0, -2.0}, {0.0, 2.0, -2.0}, {0.0, 2.0, 2.0}],
+      normal: {1.0, 0.0, 0.0}
+    }
+
+    refute World.segment_blocked_by?({-1.0, -2.0, 0.0}, {1.0, -2.0, 0.0}, [rotated], [])
+  end
 end

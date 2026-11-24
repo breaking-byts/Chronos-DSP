@@ -109,6 +109,22 @@ defmodule Chronos.GeometryTest do
     refute Geometry.point_in_polygon({1.0, 1.5, 0.0}, vertices, normal)
   end
 
+  test "boundary classification covers the first edge regardless of vertex order" do
+    normal = {0.0, 0.0, 1.0}
+
+    # The point sits on the top edge. In this ordering that edge is emitted
+    # first, so the ray-cast half-open y rule can only be rescued by the
+    # explicit boundary check.
+    rotated = [{0.0, 1.0, 0.0}, {1.0, 1.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}]
+
+    assert Geometry.point_in_polygon({0.5, 1.0, 0.0}, rotated, normal)
+    refute Geometry.point_strictly_inside_polygon?({0.5, 1.0, 0.0}, rotated, normal)
+
+    # The same applies to the bottom edge in the canonical ordering.
+    canonical = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
+    refute Geometry.point_strictly_inside_polygon?({0.5, 0.0, 0.0}, canonical, normal)
+  end
+
   test "points off the polygon plane are not inside it" do
     vertices = [{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 1.0, 0.0}]
     normal = {0.0, 0.0, 1.0}
