@@ -1,4 +1,4 @@
-use rustler::{Binary, Env, Error, OwnedBinary};
+use rustler::{BigInt, Binary, Env, Error, OwnedBinary};
 
 rustler::init!("Elixir.Chronos.DSP.Native");
 
@@ -54,8 +54,17 @@ fn render_rx_block<'a>(
     paths_block: Binary<'a>,
     sample_rate: f64,
     noise_power: f64,
-    seed: u64,
+    seed: BigInt,
 ) -> Result<Binary<'a>, Error> {
+    if seed < BigInt::from(0u8) {
+        return Err(Error::BadArg);
+    }
+
+    // The public API accepts any non-negative integer and the Elixir
+    // reference masks it to 64 bits. Do the same here so both backends
+    // produce identical output for seeds outside u64.
+    let seed: u64 = (seed & BigInt::from(u64::MAX)).try_into().unwrap_or(0);
+
     if !sample_rate.is_finite() || sample_rate <= 0.0 {
         return Err(Error::BadArg);
     }
