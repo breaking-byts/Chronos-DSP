@@ -157,15 +157,22 @@ defmodule Chronos.SceneStore do
 
   Returns `{:error, :not_found}` when the scene does not exist. Any visitor
   may delete any scene (single-tenant showcase, no ownership — ADR 0001).
+
+  Like create/save, the deletion is serialized under the per-directory lock:
+  a successful create reads its file back and save evicts to make room, so an
+  interleaved unlink could otherwise undo a write or make a valid create fail.
   """
   @spec delete(String.t()) :: :ok | {:error, :not_found | :invalid_name | File.posix()}
   def delete(name) do
-    with :ok <- validate_name(name) do
-      case File.rm(scene_path(scene_dir(), name)) do
-        :ok -> :ok
-        {:error, :enoent} -> {:error, :not_found}
-        {:error, reason} -> {:error, reason}
-      end
+    with :ok <- validate_name(name),
+         dir = scene_dir() do
+      :global.trans(dir_lock_id(dir), fn ->
+        case File.rm(scene_path(dir, name)) do
+          :ok -> :ok
+          {:error, :enoent} -> {:error, :not_found}
+          {:error, reason} -> {:error, reason}
+        end
+      end)
     end
   end
 
