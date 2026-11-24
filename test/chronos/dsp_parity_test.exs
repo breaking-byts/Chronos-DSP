@@ -72,6 +72,28 @@ defmodule Chronos.DSPParityTest do
     end
   end
 
+  test "non-finite path fields are rejected by both backends" do
+    tx_bin = Packing.pack_complex([{1.0, 0.0}, {2.0, 0.0}])
+    # NaN delay and an infinite gain: well-sized payloads that the byte
+    # decoders accept but the Elixir reference rejects at the term boundary.
+    bad_paths = [
+      <<0x7FF8_0000_0000_0000::64-little, 1.0::float-32-little, 0.0::float-32-little>>,
+      <<0.0::64-little, 0x7F80_0000::32-little, 0.0::float-32-little>>
+    ]
+
+    for paths_bin <- bad_paths do
+      assert_raise ArgumentError, fn ->
+        Reference.render_rx_block(tx_bin, paths_bin, 1.0, 0.0, 1)
+      end
+
+      if native_available?() do
+        assert_raise ArgumentError, fn ->
+          Native.render_rx_block(tx_bin, paths_bin, 1.0, 0.0, 1)
+        end
+      end
+    end
+  end
+
   test "fallback path through DSP matches the reference exactly" do
     previous = Application.get_env(:chronos, :nif_loaded_override)
 

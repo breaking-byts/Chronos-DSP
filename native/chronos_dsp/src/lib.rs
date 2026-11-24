@@ -66,6 +66,19 @@ fn render_rx_block<'a>(
 
     let tx = decode_complex(&tx_block)?;
     let paths = decode_paths(&paths_block)?;
+
+    // The byte decoders stay total so the fuzz tests can feed them any bit
+    // pattern, but the renderer must reject non-finite fields just as the
+    // Elixir reference does. Otherwise NaN/Inf samples leak into an output
+    // binary that Packing.unpack_complex!/1 cannot decode.
+    if !tx.iter().all(|s| s.re.is_finite() && s.im.is_finite())
+        || !paths
+            .iter()
+            .all(|p| p.delay_s.is_finite() && p.gain.is_finite() && p.doppler_hz.is_finite())
+    {
+        return Err(Error::BadArg);
+    }
+
     let out = render_samples(&tx, &paths, sample_rate, noise_power, seed);
     let out_bin = encode_complex(env, &out)?;
     Ok(out_bin)
