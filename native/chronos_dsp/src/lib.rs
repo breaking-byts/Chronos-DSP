@@ -56,14 +56,7 @@ fn render_rx_block<'a>(
     noise_power: f64,
     seed: BigInt,
 ) -> Result<Binary<'a>, Error> {
-    if seed < BigInt::from(0u8) {
-        return Err(Error::BadArg);
-    }
-
-    // The public API accepts any non-negative integer and the Elixir
-    // reference masks it to 64 bits. Do the same here so both backends
-    // produce identical output for seeds outside u64.
-    let seed: u64 = (seed & BigInt::from(u64::MAX)).try_into().unwrap_or(0);
+    let seed = normalize_seed(&seed)?;
 
     if !sample_rate.is_finite() || sample_rate <= 0.0 {
         return Err(Error::BadArg);
@@ -76,10 +69,29 @@ fn render_rx_block<'a>(
     let tx = decode_complex(&tx_block)?;
     let paths = decode_paths(&paths_block)?;
 
-    // The byte decoders stay total so the fuzz tests can feed them any bit
-    // pattern, but the renderer must reject non-finite fields just as the
-    // Elixir reference does. Otherwise NaN/Inf samples leak into an output
-    // binary that Packing.unpack_complex!/1 cannot decode.
+    validate_finite_inputs(&tx, &paths)?;
+
+    let out = render_samples(&tx, &paths, sample_rate, noise_power, seed);
+    let out_bin = encode_complex(env, &out)?;
+    Ok(out_bin)
+}
+
+fn normalize_seed(seed: &BigInt) -> Result<u64, Error> {
+    if *seed < BigInt::from(0u8) {
+        return Err(Error::BadArg);
+    }
+
+    // The public API accepts any non-negative integer and the Elixir
+    // reference masks it to 64 bits. Do the same here so both backends
+    // produce identical output for seeds outside u64.
+    Ok((seed & BigInt::from(u64::MAX)).try_into().unwrap_or(0))
+}
+
+// The byte decoders stay total so the fuzz tests can feed them any bit
+// pattern, but the renderer must reject non-finite fields just as the
+// Elixir reference does. Otherwise NaN/Inf samples leak into an output
+// binary that Packing.unpack_complex!/1 cannot decode.
+fn validate_finite_inputs(tx: &[Complex], paths: &[Path]) -> Result<(), Error> {
     if !tx.iter().all(|s| s.re.is_finite() && s.im.is_finite())
         || !paths
             .iter()
@@ -88,9 +100,7 @@ fn render_rx_block<'a>(
         return Err(Error::BadArg);
     }
 
-    let out = render_samples(&tx, &paths, sample_rate, noise_power, seed);
-    let out_bin = encode_complex(env, &out)?;
-    Ok(out_bin)
+    Ok(())
 }
 
 fn render_samples(
@@ -304,6 +314,75 @@ mod tests {
         let samples = decode_complex_bytes(&bin).expect("non-finite patterns still decode");
         assert!(samples[0].re.is_infinite());
         assert!(samples[0].im.is_nan());
+    }
+
+    #[test]
+    fn normalize_seed_rejects_negatives_and_masks_u64() {
+        assert_eq!(normalize_seed(&BigInt::from(0u8)).ok(), Some(0));
+        assert_eq!(normalize_seed(&BigInt::from(u64::MAX)).ok(), Some(u64::MAX));
+
+        let above_u64 = BigInt::from(1u128 << 64) + BigInt::from(7u8);
+        assert_eq!(normalize_seed(&above_u64).ok(), Some(7));
+
+        let huge = (BigInt::from(1u8) << 128u32) + BigInt::from(42u8);
+        assert_eq!(normalize_seed(&huge).ok(), Some(42));
+
+        assert!(normalize_seed(&BigInt::from(-1i8)).is_err());
+    }
+
+    #[test]
+    fn validate_finite_inputs_rejects_non_finite_fields() {
+        let ok_tx = [Complex { re: 1.0, im: -0.5 }];
+        let ok_paths = [Path {
+            delay_s: 0.0,
+            gain: 1.0,
+            doppler_hz: 0.0,
+        }];
+        assert!(validate_finite_inputs(&ok_tx, &ok_paths).is_ok());
+
+        assert!(validate_finite_inputs(
+            &[Complex {
+                re: f32::NAN,
+                im: 0.0
+            }],
+            &ok_paths
+        )
+        .is_err());
+        assert!(validate_finite_inputs(
+            &[Complex {
+                re: 0.0,
+                im: f32::INFINITY
+            }],
+            &ok_paths
+        )
+        .is_err());
+        assert!(validate_finite_inputs(
+            &ok_tx,
+            &[Path {
+                delay_s: f64::NAN,
+                gain: 1.0,
+                doppler_hz: 0.0
+            }]
+        )
+        .is_err());
+        assert!(validate_finite_inputs(
+            &ok_tx,
+            &[Path {
+                delay_s: 0.0,
+                gain: f32::INFINITY,
+                doppler_hz: 0.0
+            }]
+        )
+        .is_err());
+        assert!(validate_finite_inputs(
+            &ok_tx,
+            &[Path {
+                delay_s: 0.0,
+                gain: 1.0,
+                doppler_hz: f32::NEG_INFINITY
+            }]
+        )
+        .is_err());
     }
 
     #[test]

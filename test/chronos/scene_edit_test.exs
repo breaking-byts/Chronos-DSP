@@ -223,6 +223,22 @@ defmodule Chronos.SceneEditTest do
       assert x >= -3.0 - @margin and y >= -3.0 - @margin
     end
 
+    test "rejects vertex drag when no sampled clamped candidate satisfies min edge" do
+      # Collapsed clamp box (min - margin == max + margin == -0.25) forces every
+      # candidate onto {-0.25, -0.25}, colliding with the adjacent vertex.
+      collapsed_bounds = %{min: {0.0, 0.0}, max: {-0.5, -0.5}}
+
+      wall = %World.Wall{
+        id: :w1,
+        vertices: [{-0.25, -0.25, 0.0}, {-0.25, -0.25, 0.0}, {1.0, 1.0, 0.0}],
+        normal: {0.0, 0.0, 1.0}
+      }
+
+      world = World.add_wall(World.new(), wall)
+      payload = %{"kind" => "wall_vertex", "id" => "w1", "index" => 0, "pos" => [0.5, 0.5]}
+      assert {:error, :invalid_payload} = SceneEdit.apply(world, collapsed_bounds, payload)
+    end
+
     test "rejects out-of-range indices and unknown walls", %{world: world} do
       for index <- [-1, 4, "0", 1.5] do
         assert {:error, :invalid_payload} =

@@ -114,7 +114,7 @@ defmodule Chronos.SceneStore do
           | {:error, :invalid_scene | :invalid_name | :name_taken | File.posix()}
   def create(scene) do
     with {:ok, dir, name, body} <- prepare_scene(scene) do
-      :global.trans(dir_lock_id(dir), fn -> create_scene(dir, name, body) end)
+      with_dir_lock(dir, fn -> create_scene(dir, name, body) end)
     end
   end
 
@@ -129,7 +129,7 @@ defmodule Chronos.SceneStore do
   @spec save(scene()) :: :ok | {:error, :invalid_scene | :invalid_name | File.posix()}
   def save(scene) do
     with {:ok, dir, name, body} <- prepare_scene(scene) do
-      :global.trans(dir_lock_id(dir), fn ->
+      with_dir_lock(dir, fn ->
         cleanup_orphans(dir)
 
         with :ok <- make_room(dir, name, byte_size(body)) do
@@ -166,7 +166,7 @@ defmodule Chronos.SceneStore do
   def delete(name) do
     with :ok <- validate_name(name),
          dir = scene_dir() do
-      :global.trans(dir_lock_id(dir), fn ->
+      with_dir_lock(dir, fn ->
         case File.rm(scene_path(dir, name)) do
           :ok -> :ok
           {:error, :enoent} -> {:error, :not_found}
@@ -316,7 +316,14 @@ defmodule Chronos.SceneStore do
   # lock id and raises FunctionClauseError) and do NOT put self() inside the
   # resource (that would make every caller lock a different resource).
   # Verified empirically: 40 concurrent callers -> at most 1 inside.
-  defp dir_lock_id(dir) do
+  defp with_dir_lock(dir, fun) do
+    :global.trans(dir_lock_id(dir), fun)
+  end
+
+  # Internal seam exposed so concurrency tests share the exact lock id without
+  # duplicating the {Module, expanded_dir} tuple structure.
+  @doc false
+  def dir_lock_id(dir) do
     {{__MODULE__, Path.expand(dir)}, self()}
   end
 

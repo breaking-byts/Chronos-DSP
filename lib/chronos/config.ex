@@ -10,26 +10,28 @@ defmodule Chronos.Config do
   @doc """
   Decides whether production HTTPS redirects and HSTS are enabled.
 
-  Recognized truthy/falsy `FORCE_SSL` values win. An unrecognized value warns
-  and falls back to `PHX_SCHEME` (which may disable redirects), or to HTTPS
-  when the scheme is unset or invalid — a typo must never silently disable
-  TLS by itself. When `FORCE_SSL` is unset, `PHX_SCHEME` decides, defaulting
-  to HTTPS.
+  Recognized truthy/falsy `FORCE_SSL` values win. Blank or unset values follow
+  `PHX_SCHEME`, defaulting to HTTPS. An unrecognized non-blank value warns and
+  falls back to `PHX_SCHEME` (which may disable redirects), or to HTTPS when
+  the scheme is unset or invalid — a typo must never silently disable TLS by
+  itself.
   """
   @spec force_ssl?(String.t() | nil, String.t() | nil) :: boolean()
   def force_ssl?(force_ssl_env, scheme_env) do
+    normalized = trim_to_nil(force_ssl_env)
+
     cond do
-      truthy?(force_ssl_env) ->
+      truthy?(normalized) ->
         true
 
-      falsy?(force_ssl_env) ->
+      falsy?(normalized) ->
         false
 
-      is_nil(force_ssl_env) ->
-        scheme_https?(scheme_env, true)
+      is_nil(normalized) ->
+        normalize_scheme(scheme_env, "https") == "https"
 
       true ->
-        fallback = scheme_https?(scheme_env, true)
+        fallback = normalize_scheme(scheme_env, "https") == "https"
 
         IO.warn(
           "Unrecognized FORCE_SSL=#{inspect(force_ssl_env)}; " <>
@@ -41,21 +43,48 @@ defmodule Chronos.Config do
     end
   end
 
-  defp scheme_https?(nil, default), do: default
-
-  defp scheme_https?(scheme, _default) do
-    case String.downcase(String.trim(scheme)) do
-      "https" -> true
-      "ssl" -> true
-      "http" -> false
-      # An invalid PHX_SCHEME also falls back to the secure default.
-      _ -> true
+  @doc false
+  @spec normalize_scheme(String.t() | nil, String.t()) :: String.t()
+  def normalize_scheme(value, fallback) do
+    case trim_to_nil(value) && String.downcase(trim_to_nil(value)) do
+      "https" -> "https"
+      "ssl" -> "https"
+      "http" -> "http"
+      _ -> fallback
     end
   end
 
-  defp truthy?(value),
+  @doc false
+  @spec parse_port(String.t() | nil) :: {:ok, pos_integer()} | :empty | :error
+  def parse_port(value) do
+    case trim_to_nil(value) do
+      nil ->
+        :empty
+
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {port, ""} when port in 1..65_535 -> {:ok, port}
+          _ -> :error
+        end
+    end
+  end
+
+  @doc false
+  @spec truthy?(term()) :: boolean()
+  def truthy?(value),
     do: is_binary(value) and String.downcase(String.trim(value)) in ~w(1 true t yes y on)
 
-  defp falsy?(value),
+  @doc false
+  @spec falsy?(term()) :: boolean()
+  def falsy?(value),
     do: is_binary(value) and String.downcase(String.trim(value)) in ~w(0 false f no n off)
+
+  defp trim_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp trim_to_nil(_value), do: nil
 end

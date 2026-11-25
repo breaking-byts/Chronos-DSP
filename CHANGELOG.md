@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `Chronos.Geometry`: include the first polygon edge `(v0 -> v1)` in `polygon_edges_2d/1` so boundary and grazing-leg classification are vertex-order independent (#46).
+- `Chronos.DSP`: accept 32-bit Mach-O LE (`CE FA ED FE`) and universal/fat Mach-O (`CA FE BA BE`, `BE BA FE CA`) headers in `artifact_magic?/1` (#47).
+- `Chronos.Modem`: count missing bits as errors and use `max(length(a), length(b))` as the denominator in `ber/2` (#48).
+- `Chronos.DSP.Native` (`native/chronos_dsp`): decode `seed` as `BigInt` (rejecting negatives, masking to `u64`) and reject non-finite `tx` / `paths` fields at the NIF boundary for parity with `Chronos.DSP.Reference` (#49, #50).
+- `Chronos.SceneEdit`: enforce bounds + margin and `@min_wall_edge` jointly via `place_vertex/5` on endpoint drags, and return `{:error, :invalid_payload}` for whole-wall drags on zero-vertex walls (#51, #52).
+- `Chronos.Export`: prefix leading spreadsheet formula characters (`=`, `+`, `-`, `@`, tab, CR) with an apostrophe in string CSV fields while preserving numeric sign formatting (#53).
+- `Chronos.SceneStore`: serialize `delete/1` under the same per-directory `:global` lock as `create/1` and `save/1` (#54).
+- `ChronosWeb.ErrorHTML`: render status-specific HTML headings for `405`, `406`, and `413` responses (#55).
+- `Chronos.Config` & `Chronos.Config.UrlPort` (`config/runtime.exs`): fail closed with a warning on unrecognized `FORCE_SSL` values (falling back to `PHX_SCHEME` or HTTPS), and warn/fallback on invalid optional `PHX_URL_PORT` values instead of aborting boot (#56, #57).
+- `ChronosWeb.SimLive`: guard parse-based event handlers and entity-id/map payloads with a logging catch-all instead of crashing sessions, and push `sim_frame` events after scenario/reset when the `SimServer` is down (#58, #59).
+
 ## [0.3.0] - 2026-11-20
 
 ### Added

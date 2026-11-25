@@ -92,10 +92,10 @@ defmodule Chronos.SceneEdit do
     with {:ok, wall} <- fetch_wall(world, id),
          :ok <- validate_index(index, length(wall.vertices)),
          {:ok, x, y} <- parse_xy(pos) do
-      {x, y} = maybe_snap({x, y}, opts)
-      {x, y} = clamp_point({x, y}, bounds)
+      requested = maybe_snap({x, y}, opts)
+      clamped = clamp_point(requested, bounds)
 
-      case place_vertex({x, y}, wall.vertices, index, bounds) do
+      case place_vertex(clamped, requested, wall.vertices, index, bounds) do
         {:ok, {x, y}} ->
           vertices =
             List.replace_at(wall.vertices, index, {x, y, elem(Enum.at(wall.vertices, index), 2)})
@@ -227,20 +227,20 @@ defmodule Chronos.SceneEdit do
   # candidate satisfies both constraints. Rejection means no sampled clamped
   # candidate satisfies both constraints — not proof that no valid placement
   # exists; the LiveView caller logs a warning and no-ops.
-  defp place_vertex(point, vertices, index, bounds) do
+  defp place_vertex(clamped, requested, vertices, index, bounds) do
     neighbours = neighbour_vertices(vertices, index)
 
-    if valid_placement?(point, neighbours) do
-      {:ok, point}
+    if valid_placement?(clamped, neighbours) do
+      {:ok, clamped}
     else
-      {px, py} = point
+      {px, py} = clamped
 
       candidates =
         neighbours
         |> Enum.flat_map(fn {ax, ay, _} ->
           base = :math.atan2(py - ay, px - ax)
 
-          for step <- -8..8 do
+          for step <- 0..15 do
             angle = base + step * :math.pi() / 8.0
 
             clamp_point(
@@ -250,7 +250,7 @@ defmodule Chronos.SceneEdit do
           end
         end)
         |> Enum.uniq()
-        |> Enum.sort_by(fn candidate -> squared_distance(candidate, point) end)
+        |> Enum.sort_by(fn candidate -> squared_distance(candidate, requested) end)
 
       case Enum.find(candidates, &valid_placement?(&1, neighbours)) do
         nil -> :error
@@ -270,11 +270,11 @@ defmodule Chronos.SceneEdit do
     end
   end
 
-  defp valid_placement?({x, y}, neighbours) do
+  defp valid_placement?(point, neighbours) do
+    min_dist_sq = @min_wall_edge * @min_wall_edge - 1.0e-12
+
     Enum.all?(neighbours, fn {ax, ay, _} ->
-      dx = x - ax
-      dy = y - ay
-      dx * dx + dy * dy >= @min_wall_edge * @min_wall_edge - 1.0e-12
+      squared_distance(point, {ax, ay}) >= min_dist_sq
     end)
   end
 

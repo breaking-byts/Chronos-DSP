@@ -42,6 +42,8 @@ dashboard renders a top-down XY view.
 | `Chronos.SimServer` | GenServer owning one session: world, tick, scenario, seed, sample rate, tick interval, noise power, transmit power; `update_world/2`/`get_world/1` for editing (keeps an initial-world baseline). Emits session lifecycle telemetry. |
 | `Chronos.SimSupervisor` | `DynamicSupervisor` for per-connection sessions (`:temporary` children). |
 | `Chronos.Runtime` | App version, build/runtime env, NIF status, timestamp, uptime for health JSON. |
+| `Chronos.Config` | Production environment helpers: fail-closed `FORCE_SSL` resolution, scheme normalization, and port parsing for `config/runtime.exs`. |
+| `Chronos.Config.UrlPort` | Optional `PHX_URL_PORT` normalizer (warns and falls back to `443` or `PORT` on invalid input). |
 | `Chronos.Telemetry` | Idempotent `:telemetry` handler attachment; logs Chronos events via stdlib Logger with structured metadata (no JSON-formatter dependency). |
 | `ChronosWeb.SimLive` | LiveView that starts/stops a session and pushes frames to two hooks. |
 | `ChronosWeb.HealthController` | `/healthz` and `/readyz`. |
@@ -50,6 +52,7 @@ dashboard renders a top-down XY view.
 | `ChronosWeb.SceneController` | `GET/POST/DELETE /api/scenes`: named-scene CRUD with uniform JSON errors. |
 | `ChronosWeb.ApiParams` | Endpoint-wide `/api/*` request rules (query/reserved-field rejection), JSON parser, shared seed ceiling + tx-power bounds/validation + query-integer validation. |
 | `ChronosWeb.TelemetryPlug` | Emits `[:chronos, :api, :request]` start/stop events (duration, method, path, status) for `/api/*` requests; halt-safe. |
+| `ChronosWeb.ErrorHTML` | HTML error pages (`404`, `405`, `406`, `413`, `500`, and fallback) for browser requests. |
 | `ChronosWeb.ErrorJSON` | Uniform `{"error": message}` JSON error rendering. |
 | `ChronosWeb.Endpoint` / `Router` | Static asset serving, LiveView socket, browser/API pipelines. |
 
@@ -175,8 +178,9 @@ tick are UI-local state.
 
 `Chronos.DSP.nif_loaded?/0` checks for `chronos_dsp` / `libchronos_dsp` with
 `.so`, `.dylib`, `.dll`, or no extension in `priv/native`, then reads the first
-four bytes and accepts ELF, Mach-O (both endiannesses), or PE magic. Only then
-does it call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
+four bytes and accepts ELF, Mach-O (32-bit and 64-bit, both endiannesses),
+universal/fat Mach-O (`CAFEBABE` / `BEBAFECA`), or PE magic. Only then does it
+call `Native.nif_loaded/0`, rescuing `:nif_not_loaded` and
 `UndefinedFunctionError`. Tests can force the answer with the
 `:nif_loaded_override` application env.
 

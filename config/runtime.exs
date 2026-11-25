@@ -41,18 +41,14 @@ if config_env() == :prod do
     end
   end
 
-  falsy? = fn value ->
-    is_binary(value) and String.downcase(String.trim(value)) in ~w(0 false f no n off)
-  end
-
   parse_port = fn name, default ->
     case get_env.(name) do
       nil ->
         default
 
       value ->
-        case Integer.parse(value) do
-          {port, ""} when port in 1..65_535 ->
+        case Chronos.Config.parse_port(value) do
+          {:ok, port} ->
             port
 
           _ ->
@@ -60,16 +56,6 @@ if config_env() == :prod do
             environment variable #{name} must be an integer between 1 and 65535, got: #{inspect(value)}
             """
         end
-    end
-  end
-
-  # "HTTPS", "ssl", "http", ... -> "https" | "http"; anything else -> fallback.
-  normalize_scheme = fn value, fallback ->
-    case value && String.downcase(String.trim(value)) do
-      "https" -> "https"
-      "ssl" -> "https"
-      "http" -> "http"
-      _ -> fallback
     end
   end
 
@@ -104,7 +90,7 @@ if config_env() == :prod do
     else
       {origin_scheme, rest} =
         case Regex.run(~r{^([A-Za-z][A-Za-z0-9+.\-]*)://(.*)$}, entry) do
-          [_, scheme, rest] -> {normalize_scheme.(scheme, fallback_scheme), rest}
+          [_, scheme, rest] -> {Chronos.Config.normalize_scheme(scheme, fallback_scheme), rest}
           _ -> {fallback_scheme, entry}
         end
 
@@ -177,7 +163,7 @@ if config_env() == :prod do
     if force_ssl? do
       "https"
     else
-      normalize_scheme.(scheme_env, "http")
+      Chronos.Config.normalize_scheme(scheme_env, "http")
     end
 
   # Public port used for URL generation. Behind a TLS-terminating proxy this is
@@ -191,7 +177,7 @@ if config_env() == :prod do
   server =
     case get_env.("PHX_SERVER") do
       nil -> true
-      value -> not falsy?.(value)
+      value -> not Chronos.Config.falsy?(value)
     end
 
   default_origin =

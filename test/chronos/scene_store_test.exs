@@ -118,7 +118,7 @@ defmodule Chronos.SceneStoreTest do
   test "delete is serialized with writes under the directory lock", %{dir: dir} do
     assert :ok = SceneStore.save(valid_scene())
     parent = self()
-    lock_id = {{SceneStore, Path.expand(dir)}, self()}
+    lock_id = SceneStore.dir_lock_id(dir)
 
     task =
       Task.async(fn ->
