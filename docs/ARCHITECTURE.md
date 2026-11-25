@@ -250,8 +250,11 @@ changing the event contract.
   there are no repeated-wall bounces and no full UTD diffraction (knife-edge
   only). The built-in scenarios use one transmitter and one receiver, though
   `World` and `Channel` support multiple nodes.
-- The page renders a top-down projection; Z affects geometry and path delays but
-  not the rendered layout.
+- The page renders a height-aware top-down projection: Z affects geometry, path
+  delays, and node/wall height cues, but the layout stays planar (ADR 0002).
+- The physics-depth roadmap is locked in
+  [design/physics-depth.md](design/physics-depth.md) (ADR 0003) and lands in
+  slices #61–#65; this page describes the code as it exists on `master`.
 - Per-connection live sessions are in-memory only. Named scenes persist as
   ephemeral files (capped, lost on redeploy without a `SCENE_DIR` volume); there
   is no authentication or multi-user collaboration.

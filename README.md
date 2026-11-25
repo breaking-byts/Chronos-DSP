@@ -213,8 +213,8 @@ bin/profile                               # throughput profile script
 bin/smoke --local                         # release smoke test (no docker)
 ```
 
-The Elixir suite has 463 tests (including 32 StreamData property tests) and the
-Rust crate has 4. The Elixir suite includes channel/scenario geometry, the
+The Elixir suite includes StreamData property tests; the Rust crate has 4 unit
+tests. The Elixir suite includes channel/scenario geometry, the
 material catalogue and multi-bounce/diffraction/transmission models, uniform
 option validation, DSP reference and NIF parity, packing, modem, scene bounds,
 frame/server/supervisor behavior, LiveView controls, the headless JSON API, CSV

@@ -68,19 +68,28 @@ scaffolding.
 2. ~~Diffraction (UTD) around wall edges and a penetration-loss model.~~ Done
    as an ITU-R P.526-style knife-edge model
    (`Chronos.Channel.Diffraction`) plus wall transmission
-   (`Chronos.Channel.Transmission`). Full UTD is still future work.
+   (`Chronos.Channel.Transmission`). The physics lock (#21,
+   [design](../design/physics-depth.md), [ADR 0003](../adr/0003-physics-depth-models.md))
+   specifies the corrected model: signed obstruction height, no material
+   double-count, and §5.1 multi-edge combination. Full UTD remains deferred
+   (#66).
 3. Frequency-selective channel: per-path delay spread and a tapped delay line.
+   Locked direction (#21): static carrier phase per path, optional ITU-R
+   M.1225 statistical TDL profiles, and an illustrative delay-scaling control;
+   a high-sample-rate mode is deferred (#68).
 4. ~~Material library (concrete, glass, drywall) with attenuation
    coefficients.~~ Done in `Chronos.Material`; the values are illustrative, so
    calibrated coefficients are still future work.
-5. Calibrated link budget: antenna gains, transmit power, wavelength term, and
-   a comparison against a simple ray-tracing reference.
+5. Link budget: antenna gains, transmit power, and the Friis wavelength term
+   behind an opt-in physical mode, with the normalized default preserved
+   (#21, #63). No calibration claims; an absolute-power mode is deferred
+   (#69).
 6. Height-aware rendering, staged per the #20 design lock
    ([spec](../design/interactive-editing.md)): height-aware 2D now — z shown
-   through node size/color and wall labels, edited via a panel field; an
-   isometric Canvas toggle next via the #27 prototype; full 3D remains a
-   future aspiration ("someday") using the vendored three.js r185 escape hatch
-   (WebGL2-gated, Canvas2D fallback) per `docs/research/3d-rendering.md`
+   through node size/color and wall labels, edited via a panel field. The
+   physics lock (#21) keeps that mode and defers the isometric Canvas toggle
+   (#71) and full 3D (#72). Full 3D keeps the vendored three.js r185 escape
+   hatch (WebGL2-gated, Canvas2D fallback) per `docs/research/3d-rendering.md`
    (branch `research/3d-rendering`). ECharts GL rejected.
 
 ## Performance and scale

@@ -47,6 +47,46 @@ The representative height of a wall, the mean z of its vertices; editing it
 translates the wall vertically without changing its shape or vertical extent.
 _Avoid_: wall height (unqualified), base z
 
+**Obstruction height**:
+The signed height of an obstacle's top above the straight transmitter–receiver
+line; negative when the edge lies below the line.
+_Avoid_: clearance, edge height
+
+**Fresnel parameter**:
+The dimensionless knife-edge diffraction parameter
+`v = h · sqrt(2/λ · (1/d1 + 1/d2))`.
+_Avoid_: diffraction parameter (unqualified), K factor
+
+**Multi-edge diffraction**:
+One diffracted path around several blocking edges, combining their knife-edge
+losses per ITU-R P.526 §5.1.
+_Avoid_: cascaded diffraction, chained edges
+
+**Static carrier phase**:
+The phase a path accumulates from its delay at the carrier frequency,
+`−2π·f_c·τ`, independent of Doppler.
+_Avoid_: initial phase, absolute phase
+
+**Delay spread**:
+The rms spread of a channel's path delays; large spread makes a channel
+frequency-selective.
+_Avoid_: dispersion (unqualified)
+
+**Tapped delay line**:
+A channel representation as discrete taps, each with a delay, amplitude, and
+phase.
+_Avoid_: filter model, echo model
+
+**Statistical TDL profile**:
+A named reference tap set (ITU-R M.1225) that reproduces a delay-spread
+environment independently of scene geometry.
+_Avoid_: channel preset, synthetic channel
+
+**Delay scaling**:
+Multiplying a statistical profile's normalized tap delays by a desired delay
+spread; illustrative in Chronos, not a calibration.
+_Avoid_: time stretching, magnification
+
 ### Simulation
 
 **Session**:
@@ -70,6 +110,16 @@ _Avoid_: 2.5D, pseudo-3D
 The transmitter's output power in dBm, scaling every path gain relative to the
 10 dBm reference default; it boosts the signal, not the noise floor.
 _Avoid_: TX strength, power level
+
+**Antenna gain**:
+A transmitter or receiver gain in dBi applied only in the physical
+link-budget mode.
+_Avoid_: TX strength (for gain), antenna power
+
+**Link-budget mode**:
+Whether path gain uses the normalized default (unit gain at one metre) or the
+physical Friis form with wavelength and antenna gains.
+_Avoid_: gain mode, calibration mode
 
 ### Engine
 
