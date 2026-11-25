@@ -7,13 +7,13 @@ body:
       value: |
         Chronos-DSP is a single-tenant public showcase with teaching-first,
         honest physics
-        ([ADR 0001](https://github.com/breaking-byts/Chronos-DSP/blob/master/docs/adr/0001-public-showcase-posture.md)):
+        ([ADR 0001](https://github.com/leelanshkharbanda/Chronos-DSP/blob/master/docs/adr/0001-public-showcase-posture.md)):
         no auth, capped ephemeral scenes, knife-edge diffraction (not UTD), and
         illustrative material values. Proposals that need auth, multi-user
         isolation, or durable storage are explicitly revisiting that decision.
 
         Use the vocabulary in
-        [GLOSSARY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/GLOSSARY.md)
+        [GLOSSARY.md](https://github.com/leelanshkharbanda/Chronos-DSP/blob/master/GLOSSARY.md)
         (scene, scenario, path, material, bounce order) rather than synonyms.
   - type: textarea
     id: problem

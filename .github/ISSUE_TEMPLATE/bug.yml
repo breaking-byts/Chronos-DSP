@@ -6,12 +6,12 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Where you can, use the project's vocabulary
-        ([GLOSSARY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/GLOSSARY.md)):
+        ([GLOSSARY.md](https://github.com/leelanshkharbanda/Chronos-DSP/blob/master/GLOSSARY.md)):
         scene, scenario, path, material, session, tick.
 
         **Security vulnerability?** Do not file a public issue — use the private
         reporting path in
-        [docs/SECURITY.md](https://github.com/breaking-byts/Chronos-DSP/blob/master/docs/SECURITY.md).
+        [docs/SECURITY.md](https://github.com/leelanshkharbanda/Chronos-DSP/blob/master/docs/SECURITY.md).
   - type: textarea
     id: what-happened
     attributes:
@@ -37,7 +37,7 @@ body:
     attributes:
       label: Version / commit
       description: Release tag, container image tag, or commit SHA.
-      placeholder: "v0.2.0, ghcr.io/breaking-byts/chronos-dsp:latest, or 9136308"
+      placeholder: "v0.2.0, ghcr.io/leelanshkharbanda/chronos-dsp:latest, or 9136308"
     validations:
       required: true
   - type: dropdown

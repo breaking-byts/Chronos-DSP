@@ -72,5 +72,5 @@ Compose use only and must not be committed.
 ## Reporting
 
 Open a private security advisory on
-<https://github.com/breaking-byts/Chronos-DSP/security/advisories> or contact
+<https://github.com/leelanshkharbanda/Chronos-DSP/security/advisories> or contact
 the maintainers before filing a public issue for a vulnerability.

@@ -329,15 +329,15 @@ release. No data migration is required.
 **Docker / GHCR**
 
 ```bash
-docker pull ghcr.io/breaking-byts/chronos-dsp:<previous-tag>
-docker run ... ghcr.io/breaking-byts/chronos-dsp:<previous-tag>
+docker pull ghcr.io/leelanshkharbanda/chronos-dsp:<previous-tag>
+docker run ... ghcr.io/leelanshkharbanda/chronos-dsp:<previous-tag>
 ```
 
 **Fly.io**
 
 ```bash
 fly releases
-fly deploy --image ghcr.io/breaking-byts/chronos-dsp:<previous-tag>
+fly deploy --image ghcr.io/leelanshkharbanda/chronos-dsp:<previous-tag>
 # or, if available in your flyctl version:
 fly releases rollback <version>
 ```

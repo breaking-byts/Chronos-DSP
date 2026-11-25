@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/breaking-byts/Chronos-DSP/security/advisories
+    url: https://github.com/leelanshkharbanda/Chronos-DSP/security/advisories
     about: Report privately instead of a public issue (see docs/SECURITY.md).
   - name: Contributing guide
-    url: https://github.com/breaking-byts/Chronos-DSP/blob/master/CONTRIBUTING.md
+    url: https://github.com/leelanshkharbanda/Chronos-DSP/blob/master/CONTRIBUTING.md
     about: Setup, checks, triage vocabulary, and PR expectations.

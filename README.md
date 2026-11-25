@@ -1,6 +1,6 @@
 # Chronos-DSP
 
-[![CI](https://github.com/breaking-byts/Chronos-DSP/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/breaking-byts/Chronos-DSP/actions/workflows/ci.yml)
+[![CI](https://github.com/leelanshkharbanda/Chronos-DSP/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/leelanshkharbanda/Chronos-DSP/actions/workflows/ci.yml)
 
 Real-time wireless propagation simulator with an Elixir/Phoenix control plane
 and a Rust NIF DSP data plane.
@@ -99,7 +99,7 @@ Requirements:
 - [asdf](https://asdf-vm.com/) or [mise](https://mise.jdx.dev/).
 
 ```bash
-git clone https://github.com/breaking-byts/Chronos-DSP.git
+git clone https://github.com/leelanshkharbanda/Chronos-DSP.git
 cd Chronos-DSP
 asdf install        # or: mise install
 bin/setup           # deps + native debug build
@@ -258,7 +258,7 @@ which keeps container and platform probes working. Full instructions, Compose,
 Fly.io, Render, environment variables, and troubleshooting are in
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-Published images: `ghcr.io/breaking-byts/chronos-dsp:<tag>` and `:latest`.
+Published images: `ghcr.io/leelanshkharbanda/chronos-dsp:<tag>` and `:latest`.
 
 ## Environment variables
 
