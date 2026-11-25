@@ -57,11 +57,6 @@ The dimensionless knife-edge diffraction parameter
 `v = h · sqrt(2/λ · (1/d1 + 1/d2))`.
 _Avoid_: diffraction parameter (unqualified), K factor
 
-**Multi-edge diffraction**:
-One diffracted path around several blocking edges, combining their knife-edge
-losses per ITU-R P.526 §5.1.
-_Avoid_: cascaded diffraction, chained edges
-
 **Static carrier phase**:
 The phase a path accumulates from its delay at the carrier frequency,
 `−2π·f_c·τ`, independent of Doppler.
@@ -77,14 +72,14 @@ A channel representation as discrete taps, each with a delay, amplitude, and
 phase.
 _Avoid_: filter model, echo model
 
-**Statistical TDL profile**:
+**Statistical tapped-delay-line profile**:
 A named reference tap set (ITU-R M.1225) that reproduces a delay-spread
 environment independently of scene geometry.
 _Avoid_: channel preset, synthetic channel
 
 **Delay scaling**:
-Multiplying a statistical profile's normalized tap delays by a desired delay
-spread; illustrative in Chronos, not a calibration.
+The illustrative scaling of a statistical profile's tap delays to a chosen
+delay spread; not a calibration.
 _Avoid_: time stretching, magnification
 
 ### Simulation

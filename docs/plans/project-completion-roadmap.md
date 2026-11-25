@@ -71,8 +71,8 @@ scaffolding.
    (`Chronos.Channel.Transmission`). The physics lock (#21,
    [design](../design/physics-depth.md), [ADR 0003](../adr/0003-physics-depth-models.md))
    specifies the corrected model: signed obstruction height, no material
-   double-count, and §5.1 multi-edge combination. Full UTD remains deferred
-   (#66).
+   double-count, and per-wall edge selection (independent per-wall paths).
+   Multiple-edge models (#75) and full UTD (#66) remain deferred.
 3. Frequency-selective channel: per-path delay spread and a tapped delay line.
    Locked direction (#21): static carrier phase per path, optional ITU-R
    M.1225 statistical TDL profiles, and an illustrative delay-scaling control;

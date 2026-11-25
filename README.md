@@ -213,7 +213,7 @@ bin/profile                               # throughput profile script
 bin/smoke --local                         # release smoke test (no docker)
 ```
 
-The Elixir suite includes StreamData property tests; the Rust crate has 4 unit
+The Elixir suite includes StreamData property tests; the Rust crate has 6 unit
 tests. The Elixir suite includes channel/scenario geometry, the
 material catalogue and multi-bounce/diffraction/transmission models, uniform
 option validation, DSP reference and NIF parity, packing, modem, scene bounds,
@@ -303,7 +303,7 @@ lib/chronos/              channel + path models, material catalogue, geometry,
 lib/chronos_web/          endpoint, router, health controller, API controllers
                           (simulate/export/scenes), LiveView, layout,
                           API telemetry plug
-native/chronos_dsp/       Rust crate (rustler NIF, 4 unit tests)
+native/chronos_dsp/       Rust crate (rustler NIF, 6 unit tests)
 priv/static/              app.js (LiveView hooks), app.css, vendored ECharts
 config/                   compile-time and runtime configuration
 test/                     ExUnit suites for channel, DSP, geometry, modem,
