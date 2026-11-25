@@ -16,6 +16,12 @@ defmodule Chronos.Modem do
     |> Enum.flat_map(fn {re, im} -> demap_symbol(re, im) end)
   end
 
+  @doc """
+  Computes the bit error rate between two bit lists.
+
+  Uses the longer list length as the denominator and treats any unmatched tail
+  bits on either side as errors. Two empty streams return `0.0`.
+  """
   @spec ber(list(0 | 1), list(0 | 1)) :: float()
   def ber(a, b) do
     a_len = length(a)
@@ -28,13 +34,13 @@ defmodule Chronos.Modem do
       # Bits present on one side but missing on the other are errors: a
       # shorter received stream is a partial link failure, not a perfect
       # link measured over only the bits that happened to arrive.
-      compared =
+      mismatches =
         a
         |> Enum.zip(b)
         |> Enum.count(fn {x, y} -> x != y end)
 
       missing = abs(a_len - b_len)
-      (compared + missing) / total
+      (mismatches + missing) / total
     end
   end
 

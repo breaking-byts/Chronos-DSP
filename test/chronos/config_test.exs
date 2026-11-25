@@ -15,9 +15,12 @@ defmodule Chronos.ConfigTest do
         do: refute(Config.force_ssl?(value, nil))
   end
 
-  test "unset FORCE_SSL follows PHX_SCHEME" do
+  test "unset or blank FORCE_SSL follows PHX_SCHEME" do
     refute Config.force_ssl?(nil, "http")
+    refute Config.force_ssl?("", "http")
+    refute Config.force_ssl?("   ", "http")
     assert Config.force_ssl?(nil, "https")
+    assert Config.force_ssl?("   ", "https")
     assert Config.force_ssl?(nil, "ssl")
     assert Config.force_ssl?(nil, "garbage")
   end

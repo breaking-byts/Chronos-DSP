@@ -29,9 +29,11 @@ Compose use only and must not be committed.
   When unset, the public origin is derived from `PHX_HOST`, scheme, and URL
   port.
 - `force_ssl` is enabled by default in production with HSTS and
-  `rewrite_on: [:x_forwarded_proto]`. `FORCE_SSL=false` (or
-  `PHX_SCHEME=http`) disables it and should only be used for local containers.
-  `/healthz` and `/readyz` are excluded from the redirect.
+  `rewrite_on: [:x_forwarded_proto]`. Only recognized falsy `FORCE_SSL` values
+  (`false`/`0`, or `PHX_SCHEME=http` when `FORCE_SSL` is unset/unrecognized)
+  disable it and should only be used for local containers; unrecognized
+  `FORCE_SSL` values warn and fall back to `PHX_SCHEME` or HTTPS. `/healthz`
+  and `/readyz` are excluded from the redirect.
 - TLS termination is expected at the edge proxy or load balancer. Forward
   `X-Forwarded-Proto: https`, `X-Forwarded-For`, and `X-Forwarded-Host`
   correctly; do not expose the container's HTTP port directly to the internet.

@@ -125,4 +125,26 @@ defmodule Chronos.GeometryPropertyTest do
       assert Geometry.distance(point, back) <= tolerance
     end
   end
+
+  property "boundary and strict-inside classification is invariant to cyclic vertex rotation" do
+    check all(
+            {vertices, _centroid, _radius} <- convex_polygon(),
+            edge_idx <- StreamData.integer(0..(length(vertices) - 1)),
+            t <- coord(0.1, 0.9),
+            shift <- StreamData.integer(0..(length(vertices) - 1))
+          ) do
+      {ax, ay, az} = Enum.at(vertices, edge_idx)
+      {bx, by, bz} = Enum.at(vertices, rem(edge_idx + 1, length(vertices)))
+      edge_point = {ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t}
+
+      {head, tail} = Enum.split(vertices, shift)
+      rotated = tail ++ head
+
+      assert Geometry.point_in_polygon(edge_point, vertices, @z_normal) ==
+               Geometry.point_in_polygon(edge_point, rotated, @z_normal)
+
+      assert Geometry.point_strictly_inside_polygon?(edge_point, vertices, @z_normal) ==
+               Geometry.point_strictly_inside_polygon?(edge_point, rotated, @z_normal)
+    end
+  end
 end

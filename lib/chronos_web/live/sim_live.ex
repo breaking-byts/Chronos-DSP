@@ -239,7 +239,7 @@ defmodule ChronosWeb.SimLive do
      |> push_event("snap_state", %{enabled: enabled})}
   end
 
-  def handle_event("commit_geometry", params, socket) do
+  def handle_event("commit_geometry", params, socket) when is_map(params) do
     case socket.assigns.sim do
       nil -> {:noreply, socket}
       pid -> commit_geometry(pid, params, socket)
@@ -247,24 +247,20 @@ defmodule ChronosWeb.SimLive do
   end
 
   def handle_event("speed", %{"ms" => ms}, socket) when is_binary(ms) do
-    case Integer.parse(ms) do
-      {value, ""} when value in @speed_values ->
-        if socket.assigns.sim, do: SimServer.set_tick_ms(socket.assigns.sim, value)
-        {:noreply, assign(socket, speed_ms: value)}
-
-      _ ->
-        {:noreply, socket}
+    with {value, ""} when value in @speed_values <- Integer.parse(ms) do
+      if socket.assigns.sim, do: SimServer.set_tick_ms(socket.assigns.sim, value)
+      {:noreply, assign(socket, speed_ms: value)}
+    else
+      _ -> {:noreply, socket}
     end
   end
 
   def handle_event("noise", %{"value" => value}, socket) when is_binary(value) do
-    case Float.parse(value) do
-      {noise, ""} when noise in @noise_values ->
-        if socket.assigns.sim, do: SimServer.set_noise_power(socket.assigns.sim, noise)
-        {:noreply, assign(socket, noise_power: noise)}
-
-      _ ->
-        {:noreply, socket}
+    with {noise, ""} when noise in @noise_values <- Float.parse(value) do
+      if socket.assigns.sim, do: SimServer.set_noise_power(socket.assigns.sim, noise)
+      {:noreply, assign(socket, noise_power: noise)}
+    else
+      _ -> {:noreply, socket}
     end
   end
 
@@ -273,13 +269,7 @@ defmodule ChronosWeb.SimLive do
       socket =
         case socket.assigns.sim do
           nil ->
-            frame = build_frame(id, socket.assigns.noise_power, socket.assigns.tx_power)
-
-            socket
-            |> assign(scenario: id, custom_world: false)
-            |> put_frame(frame)
-            |> push_event("sim_frame", frame)
-            |> set_scene_baseline(Scenario.world(id))
+            apply_nil_sim_scenario(socket, id)
 
           pid ->
             :ok = SimServer.set_scenario(pid, id)
@@ -325,22 +315,17 @@ defmodule ChronosWeb.SimLive do
   end
 
   def handle_event("set_wall_attenuation", %{"id" => id, "value" => value}, socket)
-      when is_binary(value) do
-    with {db, ""} <- Float.parse(value),
-         {:ok, db} <- ApiParams.validate_attenuation(db) do
-      apply_panel_edit(socket, fn world, _bounds ->
-        PanelEdit.set_wall_attenuation(world, id, db)
-      end)
-    else
-      _ -> {:noreply, socket}
-    end
+      when is_binary(id) and is_binary(value) do
+    apply_float_panel_edit(socket, value, &ApiParams.validate_attenuation/1, fn world, db ->
+      PanelEdit.set_wall_attenuation(world, id, db)
+    end)
   end
 
   # Auto checkbox: checked clears the override to nil (use the material);
   # unchecked seeds the override with the material's reflection loss so the
   # slider starts at the material's value. Unchecked checkboxes submit no
   # "auto" field, so a missing value means false.
-  def handle_event("set_wall_auto", %{"id" => id} = params, socket) do
+  def handle_event("set_wall_auto", %{"id" => id} = params, socket) when is_binary(id) do
     auto? = Map.get(params, "auto", "false") in ["true", "on"]
 
     apply_panel_edit(socket, fn world, _bounds ->
@@ -349,25 +334,22 @@ defmodule ChronosWeb.SimLive do
     end)
   end
 
-  def handle_event("set_node_z", %{"id" => id, "value" => value}, socket) when is_binary(value) do
-    with {z, ""} <- Float.parse(value),
-         {:ok, z} <- ApiParams.validate_z(z) do
-      apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_node_z(world, id, z) end)
-    else
-      _ -> {:noreply, socket}
-    end
+  def handle_event("set_node_z", %{"id" => id, "value" => value}, socket)
+      when is_binary(id) and is_binary(value) do
+    apply_float_panel_edit(socket, value, &ApiParams.validate_z/1, fn world, z ->
+      PanelEdit.set_node_z(world, id, z)
+    end)
   end
 
-  def handle_event("set_wall_z", %{"id" => id, "value" => value}, socket) when is_binary(value) do
-    with {z, ""} <- Float.parse(value),
-         {:ok, z} <- ApiParams.validate_z(z) do
-      apply_panel_edit(socket, fn world, _bounds -> PanelEdit.set_wall_z(world, id, z) end)
-    else
-      _ -> {:noreply, socket}
-    end
+  def handle_event("set_wall_z", %{"id" => id, "value" => value}, socket)
+      when is_binary(id) and is_binary(value) do
+    apply_float_panel_edit(socket, value, &ApiParams.validate_z/1, fn world, z ->
+      PanelEdit.set_wall_z(world, id, z)
+    end)
   end
 
-  def handle_event("set_wall_material", %{"id" => id, "value" => value}, socket) do
+  def handle_event("set_wall_material", %{"id" => id, "value" => value}, socket)
+      when is_binary(id) do
     case ApiParams.validate_material(value) do
       {:ok, material} ->
         apply_panel_edit(socket, fn world, _bounds ->
@@ -383,7 +365,7 @@ defmodule ChronosWeb.SimLive do
     apply_panel_edit(socket, fn world, bounds -> PanelEdit.add_wall(world, bounds) end)
   end
 
-  def handle_event("remove_wall", %{"id" => id}, socket) do
+  def handle_event("remove_wall", %{"id" => id}, socket) when is_binary(id) do
     apply_panel_edit(socket, fn world, _bounds -> PanelEdit.remove_wall(world, id) end)
   end
 
@@ -399,7 +381,7 @@ defmodule ChronosWeb.SimLive do
     {:noreply, assign(socket, scene_name_input: name)}
   end
 
-  def handle_event("save_scene", params, socket) do
+  def handle_event("save_scene", params, socket) when is_map(params) do
     name =
       case Map.get(params, "name", socket.assigns.scene_name_input) do
         value when is_binary(value) -> String.trim(value)
@@ -995,6 +977,25 @@ defmodule ChronosWeb.SimLive do
     ]
   end
 
+  defp apply_float_panel_edit(socket, raw_value, validator, edit) do
+    with {parsed, ""} <- Float.parse(raw_value),
+         {:ok, value} <- validator.(parsed) do
+      apply_panel_edit(socket, fn world, _bounds -> edit.(world, value) end)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  defp apply_nil_sim_scenario(socket, scenario_id) do
+    frame = build_frame(scenario_id, socket.assigns.noise_power, socket.assigns.tx_power)
+
+    socket
+    |> assign(scenario: scenario_id, custom_world: false)
+    |> put_frame(frame)
+    |> push_event("sim_frame", frame)
+    |> set_scene_baseline(Scenario.world(scenario_id))
+  end
+
   # One validated panel commit: fetch the live world, apply the pure edit,
   # then share the drag-commit path (undo push, world replace, re-render).
   defp apply_panel_edit(socket, edit) do
@@ -1245,18 +1246,7 @@ defmodule ChronosWeb.SimLive do
   defp reset_simulation(socket) do
     case socket.assigns.sim do
       nil ->
-        frame =
-          build_frame(
-            socket.assigns.scenario,
-            socket.assigns.noise_power,
-            socket.assigns.tx_power
-          )
-
-        socket
-        |> put_frame(frame)
-        |> push_event("sim_frame", frame)
-        |> set_scene_baseline(Scenario.world(socket.assigns.scenario))
-        |> assign(custom_world: false)
+        apply_nil_sim_scenario(socket, socket.assigns.scenario)
 
       pid ->
         :ok = SimServer.reset(pid)

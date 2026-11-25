@@ -46,9 +46,9 @@ so a typo cannot take the node down.
 | `PHX_HOST` | no | `localhost` | Public host for URL generation. Accepts a bare host or a full URL; the path is stripped. |
 | `PORT` | no | `4000` | HTTP listen port. Must be an integer 1-65535 or boot fails. |
 | `PHX_SERVER` | no | `true` | Set `false`/`0` for release tasks that should not start the endpoint. |
-| `FORCE_SSL` | no | `true` | When set, wins over `PHX_SCHEME`. `false`/`0` disables the redirect and HSTS (local containers). |
-| `PHX_SCHEME` | no | `https` if SSL is forced, else `http` | Used only when `FORCE_SSL` is unset. Unknown values fall back. |
-| `PHX_URL_PORT` | no | `443` if SSL is forced, else `PORT` | Public URL port; independent of the listen port. |
+| `FORCE_SSL` | no | `true` | When recognized, wins over `PHX_SCHEME`. `false`/`0` disables the redirect and HSTS (local containers). Unrecognized values warn and fall back to `PHX_SCHEME` or HTTPS. |
+| `PHX_SCHEME` | no | `https` if SSL is forced, else `http` | Used when `FORCE_SSL` is unset, blank, or unrecognized. Unknown values fall back to HTTPS. |
+| `PHX_URL_PORT` | no | `443` if SSL is forced, else `PORT` | Public URL port; independent of the listen port. Invalid values warn and fall back to the derived default. |
 | `RUNTIME_ENV` | no | `prod` | Free-form label in health JSON; useful for staging. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `notice`, `warning`/`warn`, `error`, or `critical`. |
 | `SCENE_DIR` | no | `priv/scenes` inside the release | Named-scene store directory. Ephemeral by default (ADR 0001); set to a persistent volume path to survive redeploys. See [Named scenes](#named-scenes-ephemeral). |
@@ -294,8 +294,9 @@ bytes. Generate a valid value (`mix phx.gen.secret` or
 redeploy. Restarting the same container will not help.
 
 A bad `PORT` (non-integer or outside 1-65535) also raises at boot. Optional
-values such as `FORCE_SSL`, `PHX_SCHEME`, `CHECK_ORIGIN`, and `LOG_LEVEL` are
-normalized or ignored, so they do not crash the node.
+values such as `FORCE_SSL`, `PHX_SCHEME`, `PHX_URL_PORT`, `CHECK_ORIGIN`, and
+`LOG_LEVEL` are normalized, warned on, or ignored so they do not crash the node
+(and `FORCE_SSL` fails closed to `PHX_SCHEME` / HTTPS).
 
 ### Health checks fail
 
