@@ -75,9 +75,9 @@ reporting path in [docs/SECURITY.md](docs/SECURITY.md).
   `bin/test` must be green, including the coverage gate.
 - **Docs**: update README and the relevant `docs/` page when behavior changes;
   add new domain terms to `GLOSSARY.md` rather than inventing synonyms.
-- **CHANGELOG**: add an entry under `## [0.3.0] - Unreleased` in
+- **CHANGELOG**: add an entry under `## [Unreleased]` in
   [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog format). The release ticket
-  stamps the date at tag time.
+  stamps the version and date at tag time.
 - **Formatting/lint**: `mix format --check-formatted`, `cargo fmt --check`,
   and clippy clean.
 - **CI green**: the CI workflow checks formatting, compiles with
